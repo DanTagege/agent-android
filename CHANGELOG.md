@@ -20,6 +20,17 @@
 - 模拟器端口探测与 connect 改为并发，`devices` 3.5s → 1.3s。
 - CI 增加覆盖率统计。
 
+### 安全
+
+- **密码脱敏下沉到通道合流之后**：之前只有 uiautomator 解析会脱敏，而 auto 模式
+  优先走伴侣 App，密码框内容会明文进入快照、落盘 `snapshot_*.json` 并喂给模型。
+- **阻断 shell 注入**：`launch` 的包名 / Activity、`logcat --level` 现在都做标识符校验
+  或白名单。这些值经 CLI / MCP / HTTP / flow 可达，之前会被原样拼进 `adb shell`。
+- **HTTP 服务改用独立令牌** `AGENT_ANDROID_SERVE_TOKEN`，不再与伴侣 App 令牌共用；
+  没有令牌时只允许回环来源。
+- **不再静默换设备**：串号失效后只重连同一条，不会切到另一台在线设备。
+- **业务失败返回非零退出码**：`doctor` 体检不通过时 CLI 退出 2，CI 不再假绿。
+
 ### 修复
 
 - `tap` 遇到无障碍通道返回的无效坐标（负高度）时，自动换 uiautomator 重抓一次。

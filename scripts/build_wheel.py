@@ -60,6 +60,11 @@ def build() -> Path:
     for path in sorted((ROOT / MODULE).glob("*.py")):
         files.append((f"{MODULE}/{path.name}", path.read_bytes()))
 
+    # py.typed 必须一起装进去，否则 mypy / pyright 读不到类型注解
+    marker = ROOT / MODULE / "py.typed"
+    if marker.is_file():
+        files.append((f"{MODULE}/py.typed", marker.read_bytes()))
+
     info = f"{DIST}.dist-info"
     files.append((f"{info}/METADATA", _metadata().encode("utf-8")))
     files.append((f"{info}/WHEEL", (

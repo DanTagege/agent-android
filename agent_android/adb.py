@@ -160,14 +160,9 @@ def run(args: Iterable[str], *, device: str | None = None,
         if stale and retry:
             log(f"设备 {device} 已失效，尝试重连后重试…")
             _reconnect(device)
-            target = device
-            try:
-                fresh = devices()
-                if not any(d["serial"] == device and d["state"] == "device" for d in fresh):
-                    target = resolve_device(None)
-            except AgentAndroidError:
-                pass
-            return run(args, device=target, timeout=timeout, binary=binary,
+            # 只重连同一个串号。之前这里会 resolve_device(None) 换一台在线设备，
+            # 结果是「我明明指定了这台，命令却打到另一台上」—— 静默换设备比失败更危险。
+            return run(args, device=device, timeout=timeout, binary=binary,
                        retry=False, check=check)
 
         if check:

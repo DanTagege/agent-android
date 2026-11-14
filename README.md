@@ -323,6 +323,9 @@ agent-android screenshot -o shot.png    # 交叉验证（截图才是界面真�
 `--bridge`（改走设备端伴侣 App）、`--token`（伴侣 App 访问令牌）。
 也可以用环境变量 `ANDROID_SERIAL` 指定设备。这些选项写在子命令前后都可以。
 
+> `--bridge` 只转发 6 个动作：`snapshot` / `tap` / `long-press` / `input` / `swipe` / `key`。
+> `double-tap` / `drag` / `scroll-to` / `install` 这些只能走默认的 adb 通道。
+
 ### target 的四种写法
 
 | 写法 | 含义 |
@@ -567,13 +570,10 @@ agent-android/
 └── README.md
 ```
 
-> 备注：本仓库在本机被放在 `D:\agent-andorid` 目录（拼写笔误）。
-> 目录名不影响任何功能；推到 GitHub 时建议仓库名用正确的 **`agent-android`**。
-
 ## 路线图
 
 - [ ] `element` diff：只返回两次 snapshot 之间的变化，进一步省 token
-- [ ] MCP Server 模式，直接被 Claude Desktop / Cursor 挂载
+- [x] MCP Server 模式，直接被 Claude Desktop / Cursor 挂载（见下一节）
 - [ ] 录制与回放：把一次人工操作导出成可复用的 agent 脚本
 - [ ] Companion 端截图与 `uiautomator` 结果自动交叉校验
 

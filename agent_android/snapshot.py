@@ -290,6 +290,9 @@ def take(device: str, *, full: bool = False, compact: bool = False,
         left, top, right, bottom = node["bounds"]
         return right > left and bottom > top
 
+    # 通道合流后再脱敏一次：bridge 节点不经过 parse_nodes
+    mask_passwords(all_nodes)
+
     visible = [n for n in all_nodes if (full or is_meaningful(n)) and _has_area(n)]
     hidden = len(all_nodes) - len(visible)
 
@@ -369,7 +372,8 @@ def take(device: str, *, full: bool = False, compact: bool = False,
 
 
 def _clickable_ancestor(node: dict[str, Any],
-                        by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
+                        by_id: dict[str, dict[str, Any]],
+                        pool: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """向上找最近的可点击祖先。
 
     Compose 里文字节点本身通常 clickable=false，真正响应点击的是父容器；
@@ -387,7 +391,35 @@ def _clickable_ancestor(node: dict[str, Any],
                 return current
         parent_id = current.get("parent")
         current = by_id.get(parent_id) if parent_id else None
+
+    # 伴侣 App 的节点没有 parent 字段，上面这一圈等于空转。
+    # 退一步用几何关系：包含该节点中心点的最小可点击框，通常就是它所在的列表项。
+    if pool and not node.get("parent"):
+        hit = _smallest_container(node, pool)
+        if hit is not None:
+            return hit
     return node
+
+
+def _smallest_container(node: dict[str, Any],
+                        pool: list[dict[str, Any]]) -> dict[str, Any] | None:
+    center_x, center_y = node["center"]
+    best: dict[str, Any] | None = None
+    best_area: int | None = None
+    for cand in pool:
+        if cand["id"] == node["id"]:
+            continue
+        if not (cand["clickable"] or cand["editable"]):
+            continue
+        left, top, right, bottom = cand["bounds"]
+        if right <= left or bottom <= top:
+            continue
+        if not (left <= center_x <= right and top <= center_y <= bottom):
+            continue
+        area = (right - left) * (bottom - top)
+        if best_area is None or area < best_area:
+            best, best_area = cand, area
+    return best
 
 
 def _drop_invisible(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -416,6 +448,20 @@ def _ensure_visible(node: dict[str, Any]) -> dict[str, Any]:
                      "agent-android scroll-to <目标>  # 可能在屏幕外"],
         )
     return node
+
+
+def mask_passwords(nodes: list[dict[str, Any]]) -> None:
+    """把密码框的文字抹掉。
+
+    必须在「所有通道合流之后」做一次：uiautomator 的 parse 会脱敏，
+    但伴侣 App 返回的节点是另一条路，之前没经过这里 ——
+    而 bridge 又是 auto 模式的首选通道，明文密码会直接进快照并落盘。
+    """
+    if os.environ.get("AGENT_ANDROID_UNMASK"):
+        return
+    for node in nodes:
+        if node.get("password"):
+            node["text"] = "••••••"
 
 
 def _norm(text: str | None) -> str:
@@ -526,7 +572,7 @@ def _lookup(target: str, device: str) -> dict[str, Any]:
                 code="element_not_found", retryable=True,
                 actions=["agent-android snapshot", "重跑原命令"],
             )
-        return _ensure_visible(_clickable_ancestor(node, by_id))
+        return _ensure_visible(_clickable_ancestor(node, by_id, nodes))
 
     # 2) 裸坐标 x,y
     if re.fullmatch(r"\d+\s*,\s*\d+", target):
@@ -567,7 +613,7 @@ def _lookup(target: str, device: str) -> dict[str, Any]:
                 code="element_index_out_of_range", retryable=True,
                 actions=["agent-android snapshot"],
             )
-        return _ensure_visible(_clickable_ancestor(candidates[nth - 1], by_id))
+        return _ensure_visible(_clickable_ancestor(candidates[nth - 1], by_id, nodes))
 
     # 4) 裸文本：先精确匹配，再退化为包含匹配；同名多处按位置排序
     needle = _norm(target)
@@ -598,4 +644,4 @@ def _lookup(target: str, device: str) -> dict[str, Any]:
             code="element_index_out_of_range", retryable=True,
             actions=["agent-android snapshot"],
         )
-    return _ensure_visible(_clickable_ancestor(pool[nth - 1], by_id))
+    return _ensure_visible(_clickable_ancestor(pool[nth - 1], by_id, nodes))

@@ -66,10 +66,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         """设置 AGENT_ANDROID_TOKEN 后，请求需带同样的 X-Agent-Token 头。
 
+        令牌变量是独立的 AGENT_ANDROID_SERVE_TOKEN，不复用 AGENT_ANDROID_TOKEN：
+        后者是「访问手机端伴侣 App」的凭证，两个信任域共用一个秘密，
+        任何一边泄露都会连带另一边。
+
         没设令牌时**只允许回环来源**：否则 `--host 0.0.0.0` 就等于把设备
-        控制权开放给整个局域网，而默认无令牌会让这层保护形同虚设。
+        控制权开放给整个局域网。
         """
-        token = os.environ.get("AGENT_ANDROID_TOKEN", "")
+        token = os.environ.get("AGENT_ANDROID_SERVE_TOKEN", "")
         if not token:
             host = self.client_address[0]
             return host in ("127.0.0.1", "::1") or host.startswith("::ffff:127.")
@@ -214,8 +218,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
 def serve(host: str = "127.0.0.1", port: int = 8787,
           device: str | None = None) -> dict[str, Any]:
     """启动 HTTP 服务（阻塞），返回启动信息由 CLI 打印一次。"""
-    if host not in ("127.0.0.1", "localhost", "::1"):
-        log(f"警告：监听 {host} 会把手机控制权暴露到网络，请确认已设置访问令牌")
+    if host not in ("127.0.0.1", "localhost", "::1") and not os.environ.get(
+        "AGENT_ANDROID_SERVE_TOKEN"
+    ):
+        log(f"警告：监听 {host} 却没有设置 AGENT_ANDROID_SERVE_TOKEN，"
+            "任何能访问该端口的人都能控制手机")
     httpd = ThreadingHTTPServer((host, port), BridgeHandler)
     httpd.default_device = device  # type: ignore[attr-defined]
     info = {"host": host, "port": port, "device": device or "auto",

@@ -403,6 +403,26 @@ def install(apk: str, *, device: str, replace: bool = True) -> dict[str, Any]:
     return _result(device, "install", apk=str(path))
 
 
+_IDENT_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+def _safe_ident(value: str, what: str) -> str:
+    """校验要拼进 shell 命令的标识符。
+
+    这些值来自 Agent（通过 CLI / MCP / HTTP / flow），不能假设它们是干净的：
+    `launch "com.x; rm -rf /sdcard"` 会原样进 `monkey -p {}`，
+    等于让提示注入变成设备上的任意命令执行。
+    """
+    if not _IDENT_RE.match(value or ""):
+        raise AgentAndroidError(
+            f"{what} 含有不安全的字符: {value!r}",
+            "只允许字母、数字、点、下划线、斜杠、连字符；包名和 Activity 里不会出现其它字符",
+            code="invalid_argument", retryable=False,
+            actions=["agent-android 只接受形如 com.example.app 的包名"],
+        )
+    return value
+
+
 def _launcher_component(package: str, device: str) -> str:
     """解析入口 Activity，作为 monkey 的兜底。"""
     try:
@@ -424,6 +444,8 @@ def launch(package: str, *, device: str) -> dict[str, Any]:
     部分模拟器上它会返回 1 却已经启动了。以输出里的「Events injected」为准，
     没有再用 `cmd package resolve-activity` + `am start` 兜底。
     """
+    package = _safe_ident(package, "包名")
+
     # check=False：monkey 在部分模拟器上「启动成功却返回 1」，
     # 所以以输出里有没有 Events injected 为准，而不是退出码。
     try:
@@ -453,6 +475,7 @@ def launch(package: str, *, device: str) -> dict[str, Any]:
             code="launch_failed", retryable=True,
             actions=["adb shell am start -n <包名>/<Activity>"],
         )
+    component = _safe_ident(component, "Activity 组件名")
     out = adb.shell(f"am start -n {component}", device=device, timeout=30)
     if "Error" in out or "Exception" in out:
         raise AgentAndroidError(f"启动失败: {package}", out[:200], code="launch_failed")
@@ -532,7 +555,15 @@ def logcat(*, device: str, lines: int = 50, level: str = "") -> dict[str, Any]:
     """读取最近的 logcat 日志（-d 表示 dump 完就退出，不会挂住 Agent）。"""
     cmd = f"logcat -d -t {max(1, min(lines, 2000))}"
     if level:
+        normalized = level.upper()
+        # 白名单而不是转义：这个值会被包进单引号，一个 ' 就能跳出引号执行后续命令
+        if normalized not in ("V", "D", "I", "W", "E", "F"):
+            raise AgentAndroidError(
+                f"无效的日志级别: {level}",
+                "只能是 V / D / I / W / E / F 之一",
+                code="invalid_argument", retryable=False,
+            )
         # 必须加引号：不加的话设备端 shell 会把 * 当通配符展开，直接报 "no matches"
-        cmd += f" '*:{level.upper()}'"
+        cmd += f" '*:{normalized}'"
     out = adb.shell(cmd, device=device, timeout=30)
     return _result(device, "logcat", lines=lines, output=out.splitlines())

@@ -326,7 +326,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             payload = dispatch(args)
         emit(ok(**payload) if "ok" not in payload else payload, pretty=args.pretty)
-        return 0
+        # 业务失败（doctor 体检不过、断言不成立）必须给非零退出码，
+        # 否则 CI 里 `doctor` 永远绿，等于没有安全网
+        return 0 if payload.get("ok", True) is not False else 2
     except AgentAndroidError as exc:
         emit(fail(exc.message, exc.hint, code=exc.code,
                   retryable=exc.retryable, actions=exc.actions), pretty=args.pretty)
