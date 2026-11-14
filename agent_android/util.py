@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from contextlib import contextmanager
@@ -89,7 +90,8 @@ def device_lock(device: str, *, wait: float = 0) -> Iterator[None]:
 
     wait=0 表示不排队，抢不到立刻报 device_locked。
     """
-    safe = device.replace(":", "_").replace("/", "_").replace("\\", "_")
+    # Windows 的文件名不允许 < > : " / \ | ? *，设备串号里最常见的是冒号
+    safe = re.sub(r'[<>:"/\\|?*]', "_", device)
     path = cache_dir() / f".lock_{safe}"
     deadline = time.time() + max(0.0, wait)
     handle: int | None = None
@@ -97,7 +99,11 @@ def device_lock(device: str, *, wait: float = 0) -> Iterator[None]:
     while True:
         try:
             handle = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(handle, f"{os.getpid()}\n".encode())
+            try:
+                os.write(handle, f"{os.getpid()}\n".encode())
+            except OSError:
+                # 写入 pid 只为排障用；失败也不该让锁失效或泄漏 fd
+                pass
             break
         except FileExistsError:
             try:
@@ -113,7 +119,7 @@ def device_lock(device: str, *, wait: float = 0) -> Iterator[None]:
                     f"锁文件：{path}。可排队等待，或确认没有别的 Agent 后删除它",
                     code="device_locked", retryable=True,
                     actions=[
-                        f"agent-android <命令> --lock 30  # 最多排队 30 秒",
+                        "agent-android <命令> --lock 30  # 最多排队 30 秒",
                         f"rm '{path}'  # 确认对方已退出后强制解锁",
                     ],
                 )

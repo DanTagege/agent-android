@@ -64,9 +64,16 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self) -> bool:
-        """设置 AGENT_ANDROID_TOKEN 后，请求需带同样的 X-Agent-Token 头。"""
+        """设置 AGENT_ANDROID_TOKEN 后，请求需带同样的 X-Agent-Token 头。
+
+        没设令牌时**只允许回环来源**：否则 `--host 0.0.0.0` 就等于把设备
+        控制权开放给整个局域网，而默认无令牌会让这层保护形同虚设。
+        """
         token = os.environ.get("AGENT_ANDROID_TOKEN", "")
-        return not token or self.headers.get("X-Agent-Token") == token
+        if not token:
+            host = self.client_address[0]
+            return host in ("127.0.0.1", "::1") or host.startswith("::ffff:127.")
+        return self.headers.get("X-Agent-Token") == token
 
     def do_GET(self) -> None:  # noqa: N802  (标准库约定的方法名)
         parsed = urlparse(self.path)

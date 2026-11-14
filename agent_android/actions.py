@@ -256,7 +256,11 @@ def input_any(text: str, *, device: str, target: str | None = None,
     if target:
         tap(target, device=device)
         time.sleep(0.4)
-    return bridge.action(device, {"action": "input", "text": text}, token=token)
+    payload: dict[str, Any] = {"action": "input", "text": text}
+    if clear:
+        # 之前这里漏了 clear：中文输入时「先清空」的语义会悄悄失效
+        payload["clear"] = True
+    return bridge.action(device, payload, token=token)
 
 
 def input_text(text: str, *, device: str, target: str | None = None,

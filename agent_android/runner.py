@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import actions, bridge, snapshot
+from . import actions, snapshot
 from .util import AgentAndroidError, log
 
 ATOMIC_STEPS = (

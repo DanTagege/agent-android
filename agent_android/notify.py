@@ -73,7 +73,8 @@ def tap(device: str, index: int = 1) -> dict[str, Any]:
     """
     shade(device)
     time.sleep(0.2)
-    data = snapshot.take(device)
+    # 通知栏是系统 UI，uiautomator 的层级比无障碍更完整（快捷开关才有名字）
+    data = snapshot.take(device, prefer="uiautomator")
 
     candidates = [
         node for node in data["nodes"]

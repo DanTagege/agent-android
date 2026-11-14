@@ -52,12 +52,18 @@ def ensure_ready(device: str) -> bool:
         return False
 
     if "com.coco.agentandroid" not in current:
+        # 必须追加而不是覆盖：直接 put 会把 TalkBack、其它自动化工具一起清掉，
+        # 等于为了修一个 App 把用户的整套无障碍设置改坏。
+        existing = current.strip()
+        merged = f"{existing}:{COMPONENT}" if existing else COMPONENT
         try:
-            adb.shell(f"settings put secure enabled_accessibility_services {COMPONENT}",
-                      device=device, timeout=8)
+            adb.shell(
+                f"settings put secure enabled_accessibility_services '{merged}'",
+                device=device, timeout=8,
+            )
             adb.shell("settings put secure accessibility_enabled 1",
                       device=device, timeout=8)
-            log("伴侣 App 的无障碍服务已重新启用")
+            log("伴侣 App 的无障碍服务已重新启用（保留原有服务）")
         except AgentAndroidError:
             return False
 

@@ -260,6 +260,28 @@ def take(device: str, *, full: bool = False, compact: bool = False,
                 "uiautomator 拿不到层级（界面持续动画），已自动改用伴侣 App 的无障碍服务"
             )
 
+    # 无障碍通道偶尔在旋转/多显示器后返回整屏错误坐标（bottom 为负）。
+    # 文字仍然是对的，但点不了。**必须在计算 visible 之前换通道**，
+    # 否则输出给 Agent 的还是旧节点、缓存却已换成新节点，id 会整体错位。
+    if source == "accessibility" and all_nodes:
+        broken = sum(
+            1 for n in all_nodes
+            if n["bounds"][2] <= n["bounds"][0] or n["bounds"][3] <= n["bounds"][1]
+        )
+        if broken * 2 > len(all_nodes):
+            try:
+                all_nodes = parse_nodes(dump_xml(device))
+                source = "uiautomator"
+                warnings.append(
+                    "无障碍通道返回的坐标大面积无效（可能是旋转后未刷新），"
+                    "已自动改用 uiautomator；元素 id 已随之变化，请重新读取"
+                )
+            except AgentAndroidError:
+                warnings.append(
+                    "无障碍通道返回的坐标大面积无效，且 uiautomator 也不可用；"
+                    "文字可读但点击可能落空，建议重启伴侣 App"
+                )
+
     visible = all_nodes if full else [n for n in all_nodes if is_meaningful(n)]
 
     # 一次往返拿到三样东西，避免为每个字段单独起一个 adb 进程
@@ -292,26 +314,6 @@ def take(device: str, *, full: bool = False, compact: bool = False,
         except AgentAndroidError:
             # wm size 在个别模拟器上会失败，但不该让整次快照不可用
             screen = [0, 0]
-    # 无障碍通道偶尔在旋转/多显示器后返回整屏错误坐标（bottom 为负）。
-    # 文字仍然是对的，但点不了；这种情况下自动换 uiautomator 重抓一次。
-    if source == "accessibility" and all_nodes:
-        broken = sum(
-            1 for n in all_nodes
-            if n["bounds"][2] <= n["bounds"][0] or n["bounds"][3] <= n["bounds"][1]
-        )
-        if broken * 2 > len(all_nodes):
-            try:
-                all_nodes = parse_nodes(dump_xml(device))
-                source = "uiautomator"
-                warnings.append(
-                    "无障碍通道返回的坐标大面积无效（可能是旋转后未刷新），已自动改用 uiautomator"
-                )
-            except AgentAndroidError:
-                warnings.append(
-                    "无障碍通道返回的坐标大面积无效，且 uiautomator 也不可用；"
-                    "文字可读但点击可能落空，建议重启伴侣 App"
-                )
-
     # 自绘界面（游戏 / Unity / 部分 Flutter）：整屏几乎没有可用文字。
     # 提前说清楚，避免 Agent 反复 snapshot 却永远找不到按钮。
     text_nodes = sum(1 for n in visible if (n.get("text") or "").strip())

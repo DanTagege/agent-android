@@ -90,9 +90,11 @@ class RunFlowTest(unittest.TestCase):
         self.assertEqual(result["passed"], 1)
 
     def test_chinese_input_goes_through_bridge(self) -> None:
-        with patch("agent_android.runner.bridge.read_token", return_value="ABC123"), \
-             patch("agent_android.runner.bridge.action", return_value={"ok": True}) as act:
+        with patch("agent_android.actions.input_text") as ascii_path, \
+             patch("agent_android.bridge.read_token", return_value="ABC123"), \
+             patch("agent_android.bridge.action", return_value={"ok": True}) as act:
             runner.run_flow({"steps": [{"input": {"text": "中文"}}]}, "dev")
+        self.assertFalse(ascii_path.called, "中文不该走 adb 通道")
         sent = act.call_args[0][1]
         self.assertEqual(sent["text"], "中文")
 
