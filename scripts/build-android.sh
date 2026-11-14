@@ -16,6 +16,8 @@ java_major() {
 
 find_jdk() {
     local candidates=() found
+    # 自定义位置优先：JDK 装在任意目录时用 AGENT_ANDROID_JDK 指过来
+    [ -n "${AGENT_ANDROID_JDK:-}" ] && candidates+=("$AGENT_ANDROID_JDK")
     [ -n "${JAVA_HOME:-}" ] && candidates+=("$JAVA_HOME")
     candidates+=(
         "${HOME:-/root}/.jdks"/*
@@ -56,9 +58,10 @@ if ! JDK="$(find_jdk)"; then
 
 AGP 8.2 要求 Java 17，而当前 JAVA_HOME 指向的是别的版本。
 装一个 JDK 17（Temurin 或 Microsoft OpenJDK）后重试，
-或设置 JAVA_HOME 指向它，例如：
+或用环境变量指过去（两者都可以）：
 
-  export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-17.0.x"
+  export AGENT_ANDROID_JDK="D:/somewhere/jdk-17"
+  export JAVA_HOME="D:/somewhere/jdk-17"
 EOF
     exit 1
 fi
