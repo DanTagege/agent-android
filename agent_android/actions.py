@@ -255,12 +255,38 @@ def input_any(text: str, *, device: str, target: str | None = None,
         )
     if target:
         tap(target, device=device)
-        time.sleep(0.4)
+        time.sleep(0.6)
     payload: dict[str, Any] = {"action": "input", "text": text}
     if clear:
         # 之前这里漏了 clear：中文输入时「先清空」的语义会悄悄失效
         payload["clear"] = True
-    return bridge.action(device, payload, token=token)
+
+    result = bridge.action(device, payload, token=token)
+
+    # ACTION_SET_TEXT 对「还没获得焦点」的控件会静默失败：HTTP 返回成功，
+    # 但内容根本没写进去。读一次焦点控件确认，没落地就再试一次。
+    if not _input_landed(device, text):
+        log("输入没有落进控件（可能尚未获得焦点），重试一次")
+        time.sleep(0.6)
+        result = bridge.action(device, payload, token=token)
+        result["retried"] = True
+    return result
+
+
+def _input_landed(device: str, expected: str) -> bool:
+    """输入后回读一次，确认文字真的进了焦点控件。
+
+    读不到焦点控件时返回 True：宁可放过，也不要因为判断不了就盲目重试
+    （重试会在用户已手动输入的内容后面再追加一遍）。
+    """
+    try:
+        data = snapshot.take(device, prefer="accessibility")
+    except AgentAndroidError:
+        return True
+    focused = [n for n in data["nodes"] if n.get("focused") and n.get("editable")]
+    if not focused:
+        return True
+    return expected in (focused[0].get("text") or "")
 
 
 def input_text(text: str, *, device: str, target: str | None = None,

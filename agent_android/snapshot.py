@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 from . import adb
+from .util import snapshot_path
 from .util import AgentAndroidError, load_snapshot, log, save_snapshot
 
 # 匹配 "[120,840][360,910]" 形式的 bounds
@@ -282,7 +283,15 @@ def take(device: str, *, full: bool = False, compact: bool = False,
                     "文字可读但点击可能落空，建议重启伴侣 App"
                 )
 
-    visible = all_nodes if full else [n for n in all_nodes if is_meaningful(n)]
+    # 零面积节点（WebView 的离屏项最常见）既看不到也点不到，
+    # 留在输出里只会有两个后果：token 翻倍、Agent 点到 (0,0)。
+    # 缓存里仍然保留全量，这样 find_element 能找到它们并给出「存在但不可见」的准确错误。
+    def _has_area(node: dict[str, Any]) -> bool:
+        left, top, right, bottom = node["bounds"]
+        return right > left and bottom > top
+
+    visible = [n for n in all_nodes if (full or is_meaningful(n)) and _has_area(n)]
+    hidden = len(all_nodes) - len(visible)
 
     # 一次往返拿到三样东西，避免为每个字段单独起一个 adb 进程
     probed = adb.probe(device)
@@ -302,6 +311,10 @@ def take(device: str, *, full: bool = False, compact: bool = False,
         )
     if any("WebView" in n["class"] for n in visible):
         warnings.append("检测到 WebView：部分内容可能不在 UI 树里，必要时用 screenshot 交叉验证")
+    if hidden > len(visible):
+        warnings.append(
+            f"已隐藏 {hidden} 个不可见节点（零面积/离屏），需要时用 scroll-to 滚动查找"
+        )
     if len(visible) <= 3:
         warnings.append(
             "有效节点极少：可能是游戏/Flutter/Unity 自绘界面，uiautomator 拿不到控件，"
@@ -335,7 +348,7 @@ def take(device: str, *, full: bool = False, compact: bool = False,
         "package": package,
         "node_count": len(visible),
         "raw_node_count": len(all_nodes),
-        "filtered_out": len(all_nodes) - len(visible),
+        "filtered_out": hidden,
         "likely_custom_drawn": likely_custom,
         "multi_window": bool(probed.get("multi_window")),
         "nodes": [_compact(n) for n in visible] if compact else visible,
@@ -453,6 +466,29 @@ def explain_miss(nodes: list[dict[str, Any]], target: str,
 
 
 def find_element(target: str, device: str) -> dict[str, Any]:
+    """定位元素；缓存过期时先刷新再找一次。
+
+    Agent 常常「操作完立刻操作下一步」（MCP 调用间隔只有 0.1 秒），
+    缓存里还是上一个界面，于是报「找不到」——其实字面意思没错，但没帮上忙。
+    这里在失败路径上补一次刷新，正常路径仍然零额外开销。
+    """
+    try:
+        return _lookup(target, device)
+    except AgentAndroidError as exc:
+        if exc.code not in ("element_not_found", "element_invisible"):
+            raise
+        try:
+            age = time.time() - snapshot_path(device).stat().st_mtime
+        except OSError:
+            age = 0.0
+        if age < 2.0:
+            raise  # 刚抓过还找不到，说明界面上确实没有
+        log(f"快照已过期 {age:.1f}s，重新抓取后再找一次")
+        take(device)
+        return _lookup(target, device)
+
+
+def _lookup(target: str, device: str) -> dict[str, Any]:
     """把人类/Agent 给的目标解析成一个具体控件。
 
     支持四种写法：

@@ -1,5 +1,6 @@
 {
   "name": "打开设置并读取设备信息",
+  "description": "最稳的入门示例。不同 ROM 的字段名不同（「型号」/「设备名称」），所以只断言包名和节点数；读到的具体内容见 steps 里的 snapshot",
   "on_failure": "stop",
   "steps": [
     {"launch": "com.android.settings"},
@@ -9,7 +10,7 @@
     {"scroll_to": "关于手机"},
     {"tap": "关于手机"},
     {"wait": 2},
-    {"assert": {"text": ["型号"]}},
+    {"assert": {"package": "com.android.settings", "node_count_min": 6}},
     {"screenshot": "about.png"},
     {"key": "back"}
   ]
