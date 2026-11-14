@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from . import adb, snapshot
-from .util import AgentAndroidError
+from .util import AgentAndroidError, log
 
 # 常用按键名到 Android KeyEvent 的映射
 KEYCODES = {
@@ -34,17 +34,62 @@ def _result(device: str, action: str, **extra: Any) -> dict[str, Any]:
             "next": "重新执行 snapshot 确认界面变化"}
 
 
-def tap(target: str, *, device: str, delay_ms: int = 0) -> dict[str, Any]:
-    """点击目标元素。target 支持 n12 / text=登录 / id=btn / 360,900。"""
-    element = snapshot.find_element(target, device)
+def _screen_signature(data: dict[str, Any]) -> tuple[str, frozenset[str]]:
+    """用「包名 + 可见文字集合」近似表示一次界面状态。"""
+    return (
+        str(data.get("package", "")),
+        frozenset(n["text"] for n in data.get("nodes", []) if n.get("text")),
+    )
+
+
+def tap(target: str, *, device: str, delay_ms: int = 0,
+        verify: bool = False, auto_scroll: bool = False) -> dict[str, Any]:
+    """点击目标元素。target 支持 n12 / text=登录 / id=btn / 360,900。
+
+    verify=True：点击前后各抓一次快照，明确告诉 Agent 界面到底变没变。
+    auto_scroll=True：找不到目标时先滚着找一段（默认关闭，因为自动滚可能点到意外元素）。
+    """
+    try:
+        element = snapshot.find_element(target, device)
+    except AgentAndroidError as exc:
+        if exc.code == "element_invisible" and not auto_scroll:
+            # 无障碍通道偶尔给出未布局的坐标（负数高度），点下去必然落空。
+            # 换 uiautomator 重抓一次通常就正常了 —— 这是通道问题，不是元素不存在。
+            log("当前通道给的坐标不可用，换 uiautomator 重新抓取")
+            snapshot.take(device, prefer="uiautomator")
+            element = snapshot.find_element(target, device)
+        elif auto_scroll:
+            # 滚一次再找：常见于「元素在列表下方，但 Agent 没想到要先滚」
+            moved = scroll_to(target, device=device, max_swipes=3)
+            element = snapshot.find_element(target, device)
+            if moved.get("warning"):
+                log(f"自动滚动：{moved['warning']}")
+        else:
+            raise
+
+    before = snapshot.take(device) if verify else None
     x, y = element["center"]
     # input tap 偶发不投递，短暂延时可显著提高稳定性。
     # 在 PC 端等待：设备端 toybox 的 sleep 未必支持小数秒。
     if delay_ms:
         time.sleep(delay_ms / 1000)
     adb.shell(f"input tap {x} {y}", device=device)
-    return _result(device, "tap", target=target, element=element["id"],
-                   text=element.get("text", ""), at=[x, y])
+
+    result = _result(device, "tap", target=target, element=element["id"],
+                     text=element.get("text", ""), at=[x, y])
+    if verify and before is not None:
+        after = snapshot.take(device)
+        changed = _screen_signature(before) != _screen_signature(after)
+        result["verified"] = changed
+        if changed:
+            result["next"] = f"界面已变化，新页面是 {after.get('package')}；重新 snapshot 看新元素"
+        else:
+            result["warning"] = (
+                "点击已发出，但界面没有任何变化：可能点在不可交互区域、"
+                "被弹窗遮挡，或这个控件需要长按"
+            )
+            result["next"] = "agent-android screenshot  # 看图确认，或改用 long-press"
+    return result
 
 
 def long_press(target: str, *, device: str, duration_ms: int = 800) -> dict[str, Any]:

@@ -436,7 +436,7 @@ def probe(device: str) -> dict[str, object]:
             f"echo {_PROBE_MARK}W; dumpsys window displays | grep -E 'cur='; "
             f"echo {_PROBE_MARK}I; dumpsys input_method | grep mInputShown; "
             f"echo {_PROBE_MARK}A; dumpsys activity activities "
-            "| grep -E 'mResumedActivity|topResumedActivity'",
+            "| grep -E 'mResumedActivity|topResumedActivity|mMultiWindowMode'",
             device=device, timeout=15,
         )
     except AgentAndroidError:
@@ -460,6 +460,7 @@ def probe(device: str) -> dict[str, object]:
         "size": size,
         "ime": "mInputShown=true" in sections.get("I", ""),
         "package": _package_from(sections.get("A", "")),
+        "multi_window": "mMultiWindowMode=true" in sections.get("A", ""),
     }
 
 

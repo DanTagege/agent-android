@@ -157,6 +157,48 @@ header. The token is shown in the app and also written to a file the CLI reads.
   plus coordinates.
 - CAPTCHAs and lock-screen bypass are intentionally out of scope.
 
+## Not supported
+
+| Case | Why | Alternative |
+| --- | --- | --- |
+| **iOS / iPhone** | Only the Android adb + accessibility channels are implemented | [idb](https://github.com/facebook/idb), [Maestro](https://maestro.mobile.dev) |
+| CAPTCHAs / slider puzzles | Out of scope by policy | Stop the flow and hand it to a human |
+| Lock-screen PIN | Never bypasses system security | `wake` only lights the screen |
+| Games / Unity / custom-drawn | No element tree to read | `screenshot` + coordinates; `snapshot` returns `likely_custom_drawn: true` |
+| The other half of a split screen | Only the focused window is readable | Bring the target window to front first |
+| Two agents on one device | They overwrite each other's screen | Add `--lock 30` to serialize |
+
+## Commands that change the device
+
+Read-only by default; these actually mutate state:
+
+| Command | What changes |
+| --- | --- |
+| `tap` / `long-press` / `double-tap` / `drag` / `swipe` / `input` / `key` | UI state |
+| `install` | Installs or overwrites an APK |
+| `launch` | Starts the app and brings it to front |
+| `recover` | Restarts adb, reconnects emulators, clears the local snapshot cache, **rewrites accessibility settings and relaunches the companion app** |
+| First `--bridge` call | Writes `settings put secure enabled_accessibility_services` if the service is off |
+| `--lock` | Creates/removes a lock file under `~/.agent_android/` |
+
+## Running in CI
+
+No physical device needed. [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)
+is a complete template built on the official emulator runner:
+
+```yaml
+- uses: reactivecircus/android-emulator-runner@v2
+  with:
+    api-level: 33
+    target: google_apis
+    script: |
+      python -m agent_android doctor
+      python -m agent_android run examples/settings-info.json
+```
+
+For cloud devices, point `--device` at whatever `adb connect` returned.
+With no device at all, `doctor` reports it plainly instead of dumping adb errors.
+
 ## Documentation
 
 - [中文 README](README.md) — full manual

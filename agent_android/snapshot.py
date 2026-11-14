@@ -291,12 +291,50 @@ def take(device: str, *, full: bool = False, compact: bool = False,
         except AgentAndroidError:
             # wm size 在个别模拟器上会失败，但不该让整次快照不可用
             screen = [0, 0]
+    # 无障碍通道偶尔在旋转/多显示器后返回整屏错误坐标（bottom 为负）。
+    # 文字仍然是对的，但点不了；这种情况下自动换 uiautomator 重抓一次。
+    if source == "accessibility" and all_nodes:
+        broken = sum(
+            1 for n in all_nodes
+            if n["bounds"][2] <= n["bounds"][0] or n["bounds"][3] <= n["bounds"][1]
+        )
+        if broken * 2 > len(all_nodes):
+            try:
+                all_nodes = parse_nodes(dump_xml(device))
+                source = "uiautomator"
+                warnings.append(
+                    "无障碍通道返回的坐标大面积无效（可能是旋转后未刷新），已自动改用 uiautomator"
+                )
+            except AgentAndroidError:
+                warnings.append(
+                    "无障碍通道返回的坐标大面积无效，且 uiautomator 也不可用；"
+                    "文字可读但点击可能落空，建议重启伴侣 App"
+                )
+
+    # 自绘界面（游戏 / Unity / 部分 Flutter）：整屏几乎没有可用文字。
+    # 提前说清楚，避免 Agent 反复 snapshot 却永远找不到按钮。
+    text_nodes = sum(1 for n in visible if (n.get("text") or "").strip())
+    has_surface = any("SurfaceView" in (n.get("class") or "") for n in all_nodes)
+    likely_custom = has_surface and text_nodes <= 2 and len(visible) > 0
+    if likely_custom:
+        warnings.append(
+            "界面几乎没有文字节点，可能是自绘界面（游戏 / Unity / Flutter）："
+            "控件树不可用，请改用 screenshot + 坐标点击"
+        )
+    if probed.get("multi_window"):
+        warnings.append(
+            "当前处于多窗口/分屏模式，只能读到聚焦窗口；另一侧的界面不可见"
+        )
+
     data = {
         "device": device,
         "screen": screen,
         "package": package,
         "node_count": len(visible),
-        "total_node_count": len(all_nodes),
+        "raw_node_count": len(all_nodes),
+        "filtered_out": len(all_nodes) - len(visible),
+        "likely_custom_drawn": likely_custom,
+        "multi_window": bool(probed.get("multi_window")),
         "nodes": [_compact(n) for n in visible] if compact else visible,
         "compact": compact,
         "ime_visible": ime,
@@ -326,7 +364,11 @@ def _clickable_ancestor(node: dict[str, Any],
         if current is None:
             break
         if current["clickable"] or current["editable"]:
-            return current
+            left, top, right, bottom = current["bounds"]
+            # 无障碍通道偶尔返回负高度的「折叠」祖先（例如 [126,42,336,-197]），
+            # 点下去必然落空；跳过它继续往上找，最后回退到原节点。
+            if right > left and bottom > top:
+                return current
         parent_id = current.get("parent")
         current = by_id.get(parent_id) if parent_id else None
     return node
@@ -350,9 +392,49 @@ def _ensure_visible(node: dict[str, Any]) -> dict[str, Any]:
     if right <= left or bottom <= top:
         raise AgentAndroidError(
             f"元素 {node['id']} 没有可见区域（bounds={node['bounds']}）",
-            "界面可能正在动画或该节点已离屏，重新 snapshot 后再定位",
+            "界面可能正在动画，或这个节点被折叠/离屏。重新 snapshot 后再定位；"
+            "若反复遇到，改用 --prefer uiautomator 换一条通道",
+            code="element_invisible", retryable=True,
+            actions=["agent-android snapshot",
+                     "agent-android snapshot --prefer uiautomator",
+                     "agent-android scroll-to <目标>  # 可能在屏幕外"],
         )
     return node
+
+
+def explain_miss(nodes: list[dict[str, Any]], target: str,
+                 screen: list[int]) -> tuple[list[str], list[str]]:
+    """找不到元素时，给出最接近的候选和可能的原因。
+
+    「报错说找不到但明明在屏幕上」是最常见的求助，光说 not found 没有信息量。
+    """
+    from difflib import SequenceMatcher
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for node in nodes:
+        label = ((node.get("text") or "") + " " + (node.get("content_desc") or "")).strip()
+        if not label:
+            continue
+        score = SequenceMatcher(None, target, label).ratio()
+        if score >= 0.45:
+            scored.append((score, node))
+    scored.sort(key=lambda item: -item[0])
+
+    closest = [
+        f"「{((n.get('text') or n.get('content_desc')) or '')}」({n['id']}, 相似度 {s:.0%})"
+        for s, n in scored[:3]
+    ]
+
+    width, height = (screen + [0, 0])[:2]
+    offscreen = [
+        f"「{n.get('text')}」({n['id']}, 坐标 {n['bounds']})"
+        for n in nodes
+        if (n.get("text") or "").strip() and (
+            n["bounds"][0] >= width or n["bounds"][1] >= height
+            or n["bounds"][2] <= 0 or n["bounds"][3] <= 0
+        )
+    ][:3]
+    return closest, offscreen
 
 
 def find_element(target: str, device: str) -> dict[str, Any]:
@@ -410,10 +492,17 @@ def find_element(target: str, device: str) -> dict[str, Any]:
             if value == n[field] or (field == "resource_id" and n[field].endswith("/" + value))
         ]
         if not candidates:
+            closest, offscreen = explain_miss(nodes, value, data.get("screen", [0, 0]))
+            hint = f"当前界面有 {len(nodes)} 个元素"
+            if closest:
+                hint += "；最接近的：" + "、".join(closest)
+            if offscreen:
+                hint += "；屏幕外：" + "、".join(offscreen)
             raise AgentAndroidError(
-                f"找不到 {keyword}={value}", "用 snapshot 查看当前屏幕可用元素",
+                f"找不到 {keyword}={value}", hint,
                 code="element_not_found", retryable=True,
-                actions=["agent-android snapshot", "改用文本匹配：tap text=<文字>"],
+                actions=["agent-android snapshot",
+                         "agent-android scroll-to <目标>  # 可能在屏幕外"],
             )
         # 优先可点击的，其次按屏幕从上到下、从左到右排序，避免点错同名项
         candidates = _drop_invisible(candidates)
@@ -432,10 +521,18 @@ def find_element(target: str, device: str) -> dict[str, Any]:
     pool = exact or [n for n in nodes
                      if target in n["text"] or target in n["content_desc"]]
     if not pool:
+        closest, offscreen = explain_miss(nodes, target, data.get("screen", [0, 0]))
+        hint = f"当前界面有 {len(nodes)} 个元素"
+        if closest:
+            hint += "；最接近的：" + "、".join(closest)
+        if offscreen:
+            hint += "；屏幕外：" + "、".join(offscreen)
         raise AgentAndroidError(
-            f"屏幕上找不到「{target}」", "用 snapshot 列出当前所有元素",
+            f"屏幕上找不到「{target}」", hint,
             code="element_not_found", retryable=True,
-            actions=["agent-android snapshot", "agent-android scroll-to <目标>  # 可能在屏幕外"],
+            actions=["agent-android snapshot",
+                     "agent-android scroll-to <目标>  # 可能在屏幕外",
+                     "agent-android tap <目标> --auto-scroll  # 让它自己滚着找"],
         )
     pool = _drop_invisible(pool)
     pool.sort(key=lambda n: (not n["clickable"], n["bounds"][1], n["bounds"][0]))

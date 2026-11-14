@@ -15,7 +15,9 @@ from . import (
     __version__, actions, adb, bridge, diagnostics, emulators, notify,
     onboarding, runner, snapshot,
 )
-from .util import AgentAndroidError, device_lock, emit, fail, ok
+from .util import (
+    AgentAndroidError, device_lock, emit, fail, load_snapshot, ok,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,12 +69,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prefer", choices=["auto", "uiautomator", "accessibility"],
                    default="auto",
                    help="优先通道：auto 先试无障碍（实测快一倍），不可用回落 uiautomator")
+    p.add_argument("--node", metavar="ID",
+                   help="只看某个元素的完整属性（如 --node n12），不重新抓屏")
 
     sub.add_parser("wake", help="点亮屏幕（灭屏/锁屏时先执行）")
 
     p = sub.add_parser("tap", help="点击元素：n12 / text=登录 / id=btn / 360,900")
     p.add_argument("target")
     p.add_argument("--delay", type=int, default=0, help="点击前延时（毫秒）")
+    p.add_argument("--verify", action="store_true",
+                   help="点击前后各抓一次快照，确认界面真的变了（慢一倍，但可信）")
+    p.add_argument("--auto-scroll", action="store_true",
+                   help="找不到目标时先滚动查找（默认关闭，避免滚到意外位置后误点）")
 
     p = sub.add_parser("long-press", help="长按元素")
     p.add_argument("target")
@@ -135,6 +143,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--report", help="把逐步报告写到这个文件")
     p.add_argument("--continue-on-error", action="store_true",
                    help="某步失败后继续执行（默认立即停止）")
+    p.add_argument("--dry-run", action="store_true",
+                   help="只检查 target 在当前界面能否找到，不真的点击/输入")
+    p.add_argument("--resume", metavar="REPORT",
+                   help="读上次报告，跳过其中已通过的步骤")
 
     p = sub.add_parser("serve", help="启动本地 HTTP 服务，供任意 Agent 调用")
     # 故意不用 8377：那是设备端伴侣 App 的端口，两者同时跑会占不到端口
@@ -217,13 +229,29 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return bridge.dispatch(cmd, args, device)
 
     if cmd == "snapshot":
+        node_id = getattr(args, "node", None)
+        if node_id:
+            # 从最近一次快照里取：不重新抓屏，也不受当前界面变化影响
+            cached = load_snapshot(device)
+            node = next((n for n in cached["nodes"] if n["id"] == node_id), None)
+            if node is None:
+                raise AgentAndroidError(
+                    f"最近一次快照里没有 {node_id}",
+                    f"共 {cached.get('node_count', 0)} 个元素；先 snapshot 刷新",
+                    code="element_not_found", retryable=True,
+                    actions=["agent-android snapshot"],
+                )
+            return {"node": node, "package": cached.get("package"),
+                    "screen": cached.get("screen"), "source": cached.get("source")}
         return snapshot.take(device, full=args.full,
                              compact=getattr(args, "compact", False),
                              prefer=getattr(args, "prefer", "auto"))
     if cmd == "wake":
         return actions.wake(device=device)
     if cmd == "tap":
-        return actions.tap(args.target, device=device, delay_ms=args.delay)
+        return actions.tap(args.target, device=device, delay_ms=args.delay,
+                           verify=getattr(args, "verify", False),
+                           auto_scroll=getattr(args, "auto_scroll", False))
     if cmd == "long-press":
         return actions.long_press(args.target, device=device, duration_ms=args.duration)
     if cmd == "double-tap":
@@ -263,6 +291,8 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
             args.flow, device,
             on_failure="continue" if args.continue_on_error else None,
             report=args.report,
+            resume=getattr(args, "resume", None),
+            dry_run=getattr(args, "dry_run", False),
         )
 
     raise AgentAndroidError(f"未实现的命令: {cmd}")

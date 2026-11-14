@@ -1,0 +1,28 @@
+{
+  "name": "循环翻页 + 条件分支",
+  "description": "演示 repeat / if / while 三种控制流。打开设置，翻两页，遇到权限弹窗就点禁止，最后断言仍停在设置里",
+  "on_failure": "continue",
+  "steps": [
+    {"launch": "com.android.settings"},
+    {"wait": 2},
+    {"repeat": {
+      "times": 2,
+      "steps": [
+        {"swipe": "up"},
+        {"wait": 0.8}
+      ]
+    }},
+    {"if": {
+      "text": "禁止",
+      "then": [{"tap": "禁止"}],
+      "else": [{"wait": 0.3}]
+    }},
+    {"while": {
+      "text": "正在加载",
+      "max": 5,
+      "steps": [{"wait": 1}]
+    }},
+    {"assert": {"package": "com.android.settings"}},
+    {"screenshot": "after-loops.png"}
+  ]
+}

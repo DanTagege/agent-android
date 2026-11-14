@@ -14,14 +14,16 @@
     {"wait": 1.5},
     {"tap": "text=登录"},
     {"input": {"text": "hello", "target": "text=用户名"}},
-    {"swipe": "up"},
+    {"repeat": {"times": 3, "steps": [{"swipe": "up"}, {"wait": 0.5}]}},
+    {"if": {"text": "允许", "then": [{"tap": "允许"}], "else": [{"wait": 0.5}]}},
+    {"while": {"text": "加载中", "max": 10, "steps": [{"wait": 1}]}},
     {"assert": {"text": ["欢迎", "首页"]}}
   ]
 }
 ```
 
 支持的步骤：launch / tap / input / swipe / key / scroll_to / wait /
-assert / screenshot / snapshot。
+assert / screenshot / snapshot / repeat / if / while。
 """
 
 from __future__ import annotations
@@ -31,13 +33,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import actions, adb, bridge, snapshot
-from .util import AgentAndroidError
+from . import actions, bridge, snapshot
+from .util import AgentAndroidError, log
 
-STEP_KEYS = (
+ATOMIC_STEPS = (
     "launch", "tap", "input", "swipe", "key", "scroll_to",
     "wait", "assert", "screenshot", "snapshot",
 )
+CONTROL_STEPS = ("repeat", "if", "while")
+STEP_KEYS = ATOMIC_STEPS + CONTROL_STEPS
+
+MAX_DEPTH = 5  # 嵌套上限，防止写错导致无限递归
 
 
 def load_flow(path: str | Path) -> dict[str, Any]:
@@ -64,24 +70,38 @@ def load_flow(path: str | Path) -> dict[str, Any]:
             '结构示例: {"name": "...", "steps": [{"tap": "text=登录"}]}',
             code="flow_invalid_shape", retryable=False,
         )
-    if not flow["steps"]:
-        raise AgentAndroidError("流程里没有任何步骤", code="flow_empty", retryable=False)
+    _validate_steps(flow["steps"], depth=0)
+    return flow
 
-    for index, step in enumerate(flow["steps"]):
+
+def _validate_steps(steps: list[Any], *, depth: int) -> None:
+    if depth > MAX_DEPTH:
+        raise AgentAndroidError(
+            "流程嵌套太深", f"最多 {MAX_DEPTH} 层", code="flow_invalid_shape",
+        )
+    for index, step in enumerate(steps, start=1):
         if not isinstance(step, dict) or len(step) != 1:
             raise AgentAndroidError(
-                f"第 {index + 1} 步格式不对",
-                "每一步必须是只含一个键的对象，例如 {\"tap\": \"text=登录\"}",
+                f"第 {index} 步格式不对",
+                '每一步必须是只含一个键的对象，例如 {"tap": "text=登录"}',
                 code="flow_invalid_step", retryable=False,
             )
         key = next(iter(step))
         if key not in STEP_KEYS:
             raise AgentAndroidError(
-                f"第 {index + 1} 步是未知动作: {key}",
+                f"第 {index} 步是未知动作: {key}",
                 f"可用: {', '.join(STEP_KEYS)}",
                 code="flow_unknown_step", retryable=False,
             )
-    return flow
+        value = step[key]
+        if key in CONTROL_STEPS:
+            if not isinstance(value, dict):
+                raise AgentAndroidError(
+                    f"第 {index} 步的 {key} 需要一个对象", code="flow_invalid_step",
+                )
+            for branch in ("steps", "then", "else"):
+                if isinstance(value.get(branch), list):
+                    _validate_steps(value[branch], depth=depth + 1)
 
 
 def _do_input(step: dict[str, Any], device: str) -> dict[str, Any]:
@@ -95,7 +115,6 @@ def _do_input(step: dict[str, Any], device: str) -> dict[str, Any]:
         return actions.input_text(text, device=device, target=target,
                                   clear=bool(step.get("clear", False)))
 
-    # 中文：先按坐标聚焦（CLI 的编号），再用无障碍写入焦点
     if target:
         actions.tap(str(target), device=device)
         time.sleep(0.5)
@@ -133,89 +152,208 @@ def _do_assert(cond: dict[str, Any], device: str) -> dict[str, Any]:
     return {"action": "assert", "passed": True, "checked": list(cond)}
 
 
-def run_flow(flow: dict[str, Any], device: str, *,
-             on_failure: str | None = None) -> dict[str, Any]:
-    """逐步执行流程，返回含每步耗时与结果的报告。"""
-    policy = on_failure or flow.get("on_failure", "stop")
-    steps: list[dict[str, Any]] = []
-    started = time.time()
+def _text_present(device: str, needle: str) -> bool:
+    data = snapshot.take(device)
+    return any(needle in (n.get("text") or "") for n in data["nodes"])
 
-    for index, step in enumerate(flow["steps"], start=1):
+
+class _RunState:
+    def __init__(self, *, policy: str, resume: set[int], dry_run: bool) -> None:
+        self.policy = policy
+        self.resume = resume
+        self.dry_run = dry_run
+        self.records: list[dict[str, Any]] = []
+        self.failed = False
+
+    def next_index(self) -> int:
+        return len(self.records) + 1
+
+
+def _lint_target(key: str, value: Any, device: str) -> dict[str, Any]:
+    """dry-run 用：只检查 target 在当前界面能否解析，不执行动作。"""
+    target = value if isinstance(value, str) else (
+        value.get("target") if isinstance(value, dict) else None
+    )
+    if not target:
+        return {"action": key, "ok": True, "detail": {"skipped": "该步骤没有 target"}}
+    try:
+        element = snapshot.find_element(str(target), device)
+        return {"action": key, "ok": True,
+                "detail": {"target": str(target), "resolved": element["id"],
+                           "text": element.get("text", ""), "dry_run": True}}
+    except AgentAndroidError as exc:
+        return {"action": key, "ok": False,
+                "detail": {"target": str(target), "error": exc.message,
+                           "hint": exc.hint, "error_code": exc.code,
+                           "dry_run": True}}
+
+
+def _run_steps(steps: list[Any], device: str, state: _RunState,
+               depth: int = 0) -> None:
+    for step in steps:
+        if state.failed and state.policy == "stop":
+            return
+
         key = next(iter(step))
         value = step[key]
-        step_started = time.time()
-        detail: dict[str, Any] = {}
 
-        try:
-            if key == "wait":
-                time.sleep(float(value))
-                detail = {"slept": float(value)}
-            elif key == "launch":
-                detail = actions.launch(str(value), device=device)
-            elif key == "tap":
-                detail = actions.tap(str(value), device=device)
-            elif key == "input":
-                detail = _do_input(value if isinstance(value, dict) else {"text": value}, device)
-            elif key == "swipe":
-                detail = actions.swipe(str(value), device=device)
-            elif key == "key":
-                detail = actions.key(str(value), device=device)
-            elif key == "scroll_to":
-                detail = actions.scroll_to(str(value), device=device)
-            elif key == "screenshot":
-                detail = actions.screenshot(str(value), device=device)
-            elif key == "snapshot":
-                data = snapshot.take(device)
-                detail = {"package": data["package"], "nodes": data["node_count"]}
-            elif key == "assert":
-                detail = _do_assert(value if isinstance(value, dict) else {"text": value}, device)
-            ok = True
-        except AgentAndroidError as exc:
-            ok, detail = False, {
-                "error": exc.message, "error_code": exc.code,
-                "hint": exc.hint, "actions": exc.actions,
-            }
-        except Exception as exc:  # 单步异常不能让整轮消失
-            ok, detail = False, {"error": f"{type(exc).__name__}: {exc}"}
+        if key in CONTROL_STEPS:
+            _run_control(key, value, device, state, depth)
+            continue
 
-        record = {
-            "step": index,
-            "action": key,
-            "ok": ok,
-            "cost_s": round(time.time() - step_started, 2),
-            "detail": detail,
-        }
-        steps.append(record)
-        if not ok and policy == "stop":
-            break
+        index = state.next_index()
+        if index in state.resume:
+            state.records.append({
+                "step": index, "action": key, "ok": True, "cost_s": 0.0,
+                "detail": {"skipped": "上次已通过（--resume）"},
+            })
+            continue
 
-    passed = sum(1 for s in steps if s["ok"])
+        started = time.time()
+        if state.dry_run and key in ("tap", "scroll_to", "input"):
+            # 只解析 target，不真的点/输
+            linted = _lint_target(key, value, device)
+            ok, detail = linted["ok"], linted["detail"]
+        elif state.dry_run and key in ("assert", "swipe", "key", "screenshot"):
+            # 这些要么依赖真实执行结果，要么会改变界面，dry-run 下一律跳过
+            ok, detail = True, {"skipped": f"dry-run 不执行 {key}"}
+        else:
+            try:
+                detail = _exec_atomic(key, value, device)
+                ok = True
+            except AgentAndroidError as exc:
+                ok, detail = False, {
+                    "error": exc.message, "error_code": exc.code,
+                    "hint": exc.hint, "actions": exc.actions,
+                }
+            except Exception as exc:  # 单步异常不能让整轮消失
+                ok, detail = False, {"error": f"{type(exc).__name__}: {exc}"}
+
+        state.records.append({
+            "step": index, "action": key, "ok": ok,
+            "cost_s": round(time.time() - started, 2), "detail": detail,
+        })
+        if not ok:
+            state.failed = True
+
+
+def _run_control(key: str, value: dict[str, Any], device: str,
+                 state: _RunState, depth: int) -> None:
+    if depth >= MAX_DEPTH:
+        state.records.append({
+            "step": state.next_index(), "action": key, "ok": False, "cost_s": 0.0,
+            "detail": {"error": f"嵌套超过 {MAX_DEPTH} 层"},
+        })
+        state.failed = True
+        return
+
+    if key == "repeat":
+        times = max(1, int(value.get("times", 1)))
+        inner = value.get("steps", [])
+        for round_index in range(times):
+            log(f"repeat 第 {round_index + 1}/{times} 轮")
+            _run_steps(inner, device, state, depth + 1)
+            if state.failed and state.policy == "stop":
+                return
+
+    elif key == "if":
+        needle = str(value.get("text", ""))
+        branch = "then" if needle and _text_present(device, needle) else "else"
+        log(f"if「{needle}」→ 走 {branch} 分支")
+        _run_steps(value.get(branch, []), device, state, depth + 1)
+
+    elif key == "while":
+        needle = str(value.get("text", ""))
+        limit = max(1, int(value.get("max", 10)))
+        inner = value.get("steps", [])
+        for _ in range(limit):
+            if not needle or not _text_present(device, needle):
+                return
+            _run_steps(inner, device, state, depth + 1)
+            if state.failed and state.policy == "stop":
+                return
+
+
+def _exec_atomic(key: str, value: Any, device: str) -> dict[str, Any]:
+    if key == "wait":
+        time.sleep(float(value))
+        return {"slept": float(value)}
+    if key == "launch":
+        return actions.launch(str(value), device=device)
+    if key == "tap":
+        return actions.tap(str(value), device=device)
+    if key == "input":
+        return _do_input(value if isinstance(value, dict) else {"text": value}, device)
+    if key == "swipe":
+        return actions.swipe(str(value), device=device)
+    if key == "key":
+        return actions.key(str(value), device=device)
+    if key == "scroll_to":
+        return actions.scroll_to(str(value), device=device)
+    if key == "screenshot":
+        return actions.screenshot(str(value), device=device)
+    if key == "snapshot":
+        data = snapshot.take(device)
+        return {"package": data["package"], "nodes": data["node_count"]}
+    if key == "assert":
+        return _do_assert(value if isinstance(value, dict) else {"text": value}, device)
+    raise AgentAndroidError(f"未实现的步骤: {key}", code="flow_unknown_step")
+
+
+def run_flow(flow: dict[str, Any], device: str, *,
+             on_failure: str | None = None,
+             resume: set[int] | None = None,
+             dry_run: bool = False) -> dict[str, Any]:
+    """逐步执行流程，返回含每步耗时与结果的报告。
+
+    resume:  上次报告里已通过的步骤序号，这些步骤直接跳过。
+    dry_run: 只校验 target 能否解析，不真的点击/输入。
+    """
+    policy = on_failure or flow.get("on_failure", "stop")
+    state = _RunState(policy=policy, resume=resume or set(), dry_run=dry_run)
+    started = time.time()
+
+    _run_steps(flow["steps"], device, state)
+
+    steps = state.records
     failed = [s for s in steps if not s["ok"]]
     return {
         "flow": flow.get("name", "未命名流程"),
         "device": device,
+        "dry_run": dry_run,
         "total": len(flow["steps"]),
         "executed": len(steps),
-        "passed": passed,
+        "passed": sum(1 for s in steps if s["ok"]),
         "failed": len(failed),
-        "ok": not failed and len(steps) == len(flow["steps"]),
+        "ok": not failed,
         "cost_s": round(time.time() - started, 1),
         "steps": steps,
     }
 
 
 def run_flow_file(path: str, device: str, *, on_failure: str | None = None,
-                  report: str | None = None) -> dict[str, Any]:
+                  report: str | None = None, resume: str | None = None,
+                  dry_run: bool = False) -> dict[str, Any]:
     flow = load_flow(path)
-    result = run_flow(flow, device, on_failure=on_failure)
+
+    passed: set[int] = set()
+    if resume:
+        previous = json.loads(Path(resume).expanduser().read_text(encoding="utf-8"))
+        passed = {int(s["step"]) for s in previous.get("steps", []) if s.get("ok")}
+
+    result = run_flow(flow, device, on_failure=on_failure,
+                      resume=passed, dry_run=dry_run)
+
     if report:
         target = Path(report).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        target.write_text(json.dumps(result, ensure_ascii=False, indent=2),
+                          encoding="utf-8")
         result["report_path"] = str(target)
-    # 附一眼能看懂的结论，Agent 不用自己数
+
     result["summary"] = (
-        f"{result['passed']}/{result['total']} 步通过"
+        ("[dry-run] " if dry_run else "")
+        + f"{result['passed']}/{result['executed']} 步通过"
         + ("" if result["ok"] else "，失败项: " + ", ".join(
             f"#{s['step']} {s['action']}" for s in result["steps"] if not s["ok"]
         ))

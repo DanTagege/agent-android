@@ -20,6 +20,24 @@
 - 模拟器端口探测与 connect 改为并发，`devices` 3.5s → 1.3s。
 - CI 增加覆盖率统计。
 
+### 修复
+
+- `tap` 遇到无障碍通道返回的无效坐标（负高度）时，自动换 uiautomator 重抓一次。
+- `snapshot` 检测到整屏坐标失效（旋转后未刷新）时自动切换通道，并写入 `warning`。
+- `find_element` 找不到目标时，返回最接近的候选与屏幕外元素，而不是只说「没找到」。
+- `snapshot` 新增 `raw_node_count` / `filtered_out` / `likely_custom_drawn` / `multi_window`，
+  解释「为什么两个通道节点数差这么多」以及自绘界面、分屏的可见性限制。
+
+### 增强
+
+- `run` 支持 `repeat` / `if` / `while` 三种控制流，`--dry-run` 只校验 target，
+  `--resume <报告>` 跳过上次已通过的步骤。
+- `tap --verify` 点击前后各抓一次快照，明确返回界面到底变没变。
+- `tap --auto-scroll` 找不到目标时先滚一段再找（默认关闭）。
+- `snapshot --node n12` 单独查看某个元素的完整属性。
+- 新增 `.github/workflows/e2e.yml`：在真实模拟器上跑流程的 CI 模板。
+- README 增加「不支持什么」「哪些命令会改设备」「在 CI 里跑」三节。
+
 ## [0.1.0] - 2026-11-14
 
 首个公开版本。

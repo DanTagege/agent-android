@@ -478,6 +478,57 @@ python -m agent_android snapshot --pretty | Out-File -Encoding utf8 snap.json
 - **App 崩溃会被识别**：`snapshot` 发现界面回到桌面会提示，`crashes` 直接给
   进程 + 异常 + 调用栈。
 
+## 不支持什么
+
+明确不做的事，避免白花时间：
+
+| 场景 | 原因 | 替代方案 |
+| --- | --- | --- |
+| **iOS / iPhone** | 只实现 Android 的 adb 与无障碍通道 | [idb](https://github.com/facebook/idb)、[Maestro](https://maestro.mobile.dev) |
+| 验证码 / 滑块 | 合规边界，不提供自动破解 | 脚本跑到这里停下，交给人 |
+| 锁屏密码 | 不尝试绕过系统安全 | `wake` 只点亮屏幕，解锁交给用户 |
+| 游戏 / Unity 等自绘界面 | 拿不到控件树 | `screenshot` + 坐标点击；`snapshot` 会返回 `likely_custom_drawn: true` 提示 |
+| 分屏另一侧的界面 | 只读聚焦窗口 | 先切到目标窗口再操作；`snapshot` 会返回 `multi_window: true` |
+| 同一台设备的并发操作 | 两个 Agent 会互相刷走界面 | 加 `--lock 30` 排队（文件锁） |
+
+## 哪些命令会改设备
+
+默认只读，但下面这些会真的改动状态，生产设备上请留意：
+
+| 命令 | 改了什么 |
+| --- | --- |
+| `tap` / `long-press` / `double-tap` / `drag` / `swipe` / `input` / `key` | 界面状态 |
+| `install` | 安装或覆盖 APK |
+| `launch` | 启动应用并切到前台 |
+| `recover` | 重启 adb、重连模拟器、删本地快照缓存、**重写无障碍设置并拉起伴侣 App** |
+| `--bridge` 首次调用 | 若无障碍服务未启用，会写 `settings put secure enabled_accessibility_services` |
+| `--lock` | 在 `~/.agent_android/` 下创建/删除锁文件 |
+
+## 在 CI 里跑
+
+没有真机也能跑。仓库里的 `.github/workflows/e2e.yml` 是完整模板，核心是用官方
+模拟器 runner 拉起一个 AVD：
+
+```yaml
+- uses: reactivecircus/android-emulator-runner@v2
+  with:
+    api-level: 33
+    target: google_apis
+    script: |
+      python -m agent_android doctor
+      python -m agent_android run examples/settings-info.json
+```
+
+用云真机则更简单：把厂商给的 adb 连接串喂给 `--device`。
+
+```bash
+adb connect <云真机地址>
+agent-android --device <地址> snapshot
+```
+
+CI 里没有设备时，`doctor` 会明确输出「无在线设备」并给出两条接入建议，
+而不是抛一堆 adb 报错。
+
 ## 安全说明
 
 ⚠️ 这个工具等价于把手机控制权交给本机进程。
