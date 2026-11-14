@@ -261,8 +261,9 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
     if cmd == "scroll-to":
         return actions.scroll_to(args.target, device=device, max_swipes=args.max)
     if cmd == "input":
-        return actions.input_text(args.text, device=device,
-                                  target=args.target, clear=args.clear)
+        # input_any 内部按字符集选通道：ASCII 走 adb，其余自动走伴侣 App
+        return actions.input_any(args.text, device=device,
+                                 target=args.target, clear=args.clear)
     if cmd == "swipe":
         return actions.swipe(args.direction, device=device, duration_ms=args.duration)
     if cmd == "key":

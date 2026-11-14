@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import unicodedata
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -402,6 +403,17 @@ def _ensure_visible(node: dict[str, Any]) -> dict[str, Any]:
     return node
 
 
+def _norm(text: str | None) -> str:
+    """把文本归一化成 NFC 再比较。
+
+    同一个「é」在 Unicode 里可以是预组合字符（U+00E9），
+    也可以是 e + 组合重音符（U+0065 U+0301）。界面和用户输入来自不同来源时，
+    字节不同但视觉相同 —— 不归一化就会「明明看到却匹配不到」。
+    德语变音、西班牙语重音、法语连字都会踩这个坑。
+    """
+    return unicodedata.normalize("NFC", text or "")
+
+
 def explain_miss(nodes: list[dict[str, Any]], target: str,
                  screen: list[int]) -> tuple[list[str], list[str]]:
     """找不到元素时，给出最接近的候选和可能的原因。
@@ -410,12 +422,13 @@ def explain_miss(nodes: list[dict[str, Any]], target: str,
     """
     from difflib import SequenceMatcher
 
+    needle = _norm(target)
     scored: list[tuple[float, dict[str, Any]]] = []
     for node in nodes:
-        label = ((node.get("text") or "") + " " + (node.get("content_desc") or "")).strip()
+        label = _norm(((node.get("text") or "") + " " + (node.get("content_desc") or "")).strip())
         if not label:
             continue
-        score = SequenceMatcher(None, target, label).ratio()
+        score = SequenceMatcher(None, needle, label).ratio()
         if score >= 0.45:
             scored.append((score, node))
     scored.sort(key=lambda item: -item[0])
@@ -487,9 +500,11 @@ def find_element(target: str, device: str) -> dict[str, Any]:
     keyword, _, value = target.partition("=")
     if keyword.lower() in ("text", "desc", "id") and value:
         field = {"text": "text", "desc": "content_desc", "id": "resource_id"}[keyword.lower()]
+        needle = _norm(value)
         candidates = [
             n for n in nodes
-            if value == n[field] or (field == "resource_id" and n[field].endswith("/" + value))
+            if needle == _norm(n[field])
+            or (field == "resource_id" and n[field].endswith("/" + value))
         ]
         if not candidates:
             closest, offscreen = explain_miss(nodes, value, data.get("screen", [0, 0]))
@@ -517,9 +532,11 @@ def find_element(target: str, device: str) -> dict[str, Any]:
         return _ensure_visible(_clickable_ancestor(candidates[nth - 1], by_id))
 
     # 4) 裸文本：先精确匹配，再退化为包含匹配；同名多处按位置排序
-    exact = [n for n in nodes if target in (n["text"], n["content_desc"])]
+    needle = _norm(target)
+    exact = [n for n in nodes
+             if needle in (_norm(n["text"]), _norm(n["content_desc"]))]
     pool = exact or [n for n in nodes
-                     if target in n["text"] or target in n["content_desc"]]
+                     if needle in _norm(n["text"]) or needle in _norm(n["content_desc"])]
     if not pool:
         closest, offscreen = explain_miss(nodes, target, data.get("screen", [0, 0]))
         hint = f"当前界面有 {len(nodes)} 个元素"

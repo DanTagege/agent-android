@@ -239,20 +239,10 @@ def call_tool(name: str, arguments: dict[str, Any],
         if name == "android_tap":
             return _text(actions.tap(str(arguments["target"]), device=device))
         if name == "android_input":
-            text = str(arguments.get("text", ""))
-            target = arguments.get("target")
-            if all(ord(ch) < 128 for ch in text):
-                return _text(actions.input_text(
-                    text, device=device, target=target,
-                    clear=bool(arguments.get("clear")),
-                ))
-            from . import bridge
-
-            if target:
-                actions.tap(str(target), device=device)
-            return _text(bridge.action(
-                device, {"action": "input", "text": text},
-                token=bridge.read_token(device),
+            return _text(actions.input_any(
+                str(arguments.get("text", "")), device=device,
+                target=arguments.get("target"),
+                clear=bool(arguments.get("clear")),
             ))
         if name == "android_swipe":
             return _text(actions.swipe(str(arguments["direction"]), device=device))

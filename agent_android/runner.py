@@ -111,15 +111,8 @@ def _do_input(step: dict[str, Any], device: str) -> dict[str, Any]:
     if not text:
         raise AgentAndroidError("input 步骤缺少 text", code="flow_invalid_step")
 
-    if all(ord(ch) < 128 for ch in text):
-        return actions.input_text(text, device=device, target=target,
-                                  clear=bool(step.get("clear", False)))
-
-    if target:
-        actions.tap(str(target), device=device)
-        time.sleep(0.5)
-    token = bridge.read_token(device)
-    return bridge.action(device, {"action": "input", "text": text}, token=token)
+    return actions.input_any(text, device=device, target=target,
+                             clear=bool(step.get("clear", False)))
 
 
 def _do_assert(cond: dict[str, Any], device: str) -> dict[str, Any]:

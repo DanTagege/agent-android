@@ -229,6 +229,36 @@ def scroll_to(target: str, *, device: str, max_swipes: int = 8,
     )
 
 
+def input_any(text: str, *, device: str, target: str | None = None,
+              clear: bool = False) -> dict[str, Any]:
+    """输入文本：ASCII 走 adb，含任何非 ASCII 字符自动走伴侣 App。
+
+    adb 的 `input text` 只认 ASCII，中文、日文、韩文、俄语、德语变音、
+    西班牙语重音都会被吞掉。与其让调用方自己判断该加 `--bridge`，
+    不如在入口就把通道选好 —— CLI / runner / MCP 因此行为一致。
+    """
+    if all(ord(ch) < 128 for ch in text):
+        return input_text(text, device=device, target=target, clear=clear)
+
+    from . import bridge
+
+    token = bridge.read_token(device)
+    if not token:
+        raise AgentAndroidError(
+            "这段文本含非 ASCII 字符，需要设备端伴侣 App",
+            "adb 的 input text 只支持 ASCII；装 android/ 下的 APK 并开启无障碍服务，"
+            "或改用 ADBKeyBoard 输入法",
+            code="bridge_token_missing", retryable=False,
+            actions=["python scripts/build-android.sh  # 构建并安装伴侣 App",
+                     "在 App 里点「开启无障碍服务」",
+                     "重跑原命令"],
+        )
+    if target:
+        tap(target, device=device)
+        time.sleep(0.4)
+    return bridge.action(device, {"action": "input", "text": text}, token=token)
+
+
 def input_text(text: str, *, device: str, target: str | None = None,
                clear: bool = False) -> dict[str, Any]:
     """输入文字。可先点某个输入框（target），再输入。
