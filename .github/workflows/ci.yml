@@ -42,6 +42,8 @@ jobs:
           else
             echo "cmdline-tools 不存在，跳过（预装 SDK 通常已含所需平台）"
           fi
+      # 缓存 Gradle 发行版与依赖：这一步是 Android job 最主要的耗时和失败点
+      - uses: gradle/actions/setup-gradle@v3
       - name: Build debug APK
         working-directory: android
         # 用 sh 显式执行：Windows 上创建的 gradlew 可能没有可执行位，

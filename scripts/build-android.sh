@@ -1,24 +1,82 @@
 #!/usr/bin/env bash
-# Windows + Git Bash 下一键编译设备端伴侣 App。
-# 复用本机已缓存的 Gradle，跳过 130MB 发行版下载；同时避开常见的沙箱构建坑。
-set -e
+# 编译设备端伴侣 App（Android / Kotlin / Compose）。
+#
+# 需要 JDK 17+ 与 Android SDK，两者都会先探测再使用：
+#   1) 优先用已有的 JAVA_HOME / ANDROID_HOME
+#   2) 否则在常见安装位置里找
+#   3) 都找不到就给出明确提示，而不是让 Gradle 抛一屏术语
+set -euo pipefail
 
-export JAVA_HOME="D:/AndroidDev/jdk/jdk-17.0.20.1+1"
-export ANDROID_HOME="D:/AndroidDev/android-sdk"
-export ANDROID_SDK_ROOT="$ANDROID_HOME"
+java_major() {
+    [ -x "$1/bin/java" ] || return 1
+    "$1/bin/java" -version 2>&1 \
+        | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' \
+        | head -1
+}
+
+find_jdk() {
+    local candidates=() found
+    [ -n "${JAVA_HOME:-}" ] && candidates+=("$JAVA_HOME")
+    candidates+=(
+        "${HOME:-/root}/.jdks"/*
+        "/c/Program Files/Eclipse Adoptium"/*
+        "/c/Program Files/Microsoft"/jdk-*
+        "/c/Program Files/Java"/*
+        "/usr/lib/jvm"/*
+    )
+    for found in "${candidates[@]}"; do
+        [ -d "$found" ] || continue
+        if [ "$(java_major "$found" || echo 0)" -ge 17 ] 2>/dev/null; then
+            echo "$found"
+            return 0
+        fi
+    done
+    return 1
+}
+
+find_sdk() {
+    local candidates=() found
+    [ -n "${ANDROID_HOME:-}" ] && candidates+=("$ANDROID_HOME")
+    [ -n "${ANDROID_SDK_ROOT:-}" ] && candidates+=("$ANDROID_SDK_ROOT")
+    candidates+=(
+        "${LOCALAPPDATA:-}/Android/Sdk"
+        "${HOME:-/root}/Android/Sdk"
+        "${HOME:-/root}/Library/Android/sdk"
+        "/d/AndroidDev/android-sdk"
+    )
+    for found in "${candidates[@]}"; do
+        [ -d "$found/platform-tools" ] && { echo "$found"; return 0; }
+    done
+    return 1
+}
+
+if ! JDK="$(find_jdk)"; then
+    cat >&2 <<'EOF'
+找不到 JDK 17+。
+
+AGP 8.2 要求 Java 17，而当前 JAVA_HOME 指向的是别的版本。
+装一个 JDK 17（Temurin 或 Microsoft OpenJDK）后重试，
+或设置 JAVA_HOME 指向它，例如：
+
+  export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-17.0.x"
+EOF
+    exit 1
+fi
+export JAVA_HOME="$JDK"
+
+if ! SDK="$(find_sdk)"; then
+    echo "找不到 Android SDK（需要 platform-tools）。设置 ANDROID_HOME 后重试。" >&2
+    exit 1
+fi
+export ANDROID_HOME="$SDK"
+export ANDROID_SDK_ROOT="$SDK"
 export PATH="$JAVA_HOME/bin:$PATH"
 
-# JAVA_TOOL_OPTIONS 会被 launcher 和 daemon 同时继承，比 -D 命令行参数可靠
-export JAVA_TOOL_OPTIONS="-Dorg.gradle.native=false"
-# Windows 版 Java 不认 /tmp 这类 POSIX 路径，两个变量都要设
-export TMP="C:/Users/Quanzhenglin/AppData/Local/Temp"
-export TEMP="$TMP"
+echo "JDK: $JAVA_HOME"
+echo "SDK: $ANDROID_HOME"
 
-GRADLE="$HOME/.gradle/wrapper/dists/gradle-8.2.1-bin/5hap6b9n41hkg4jeh2au2pllh/gradle-8.2.1/bin/gradle"
-PROJECT_DIR="$(cd "$(dirname "$0")/../android" && pwd)"
-
-cd "$PROJECT_DIR"
-"$GRADLE" --no-daemon --console=plain --no-watch-fs "$@"
+cd "$(dirname "$0")/../android"
+sh ./gradlew --no-daemon --console=plain "$@"
 
 echo ""
-echo "APK: $PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+echo "APK: $(pwd)/app/build/outputs/apk/debug/app-debug.apk"
