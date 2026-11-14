@@ -286,6 +286,9 @@ agent-android screenshot -o shot.png    # 交叉验证（截图才是界面真�
 
 ## 命令一览
 
+> **关于前缀**：下表省略了前缀。`pip install -e .` 之后才有 `agent-android snapshot` 这个简短形式；
+> 没安装时请写成 `python -m agent_android snapshot`，两者完全等价。
+
 | 命令 | 作用 |
 | --- | --- |
 | `devices` | 列出已连接设备，并识别是哪家模拟器 |

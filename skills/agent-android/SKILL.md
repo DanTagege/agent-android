@@ -32,6 +32,7 @@ metadata:
 1. `agent-android connect`（连模拟器时）然后 `agent-android health` — 确认 adb、设备、uiautomator 都可用
 2. `agent-android install <apk>` 然后 `agent-android launch <包名>`（如已装好可跳过）
 3. `agent-android snapshot` — 拿到 `nodes`，每个元素有 `id`、`text`、`bounds`、`clickable`
+   （**没装包时**：`agent-android` 会 command not found，一律改用 `python -m agent_android`）
 4. 用元素的 `id` 执行动作，例如 `agent-android tap n12` 或 `agent-android tap text=登录`
 5. **再执行一次 snapshot** 确认界面真的变了，没变就重试或换定位方式
 6. 出问题时 `agent-android logcat --level E` 和 `agent-android screenshot -o shot.png` 交叉验证
@@ -194,6 +195,7 @@ screenshot / snapshot`。`assert` 一次抓屏校验多个条件；失败默认�
 ## 完整示例
 
 ```bash
+# 未安装 CLI 时，把下面的 agent-android 全部换成 python -m agent_android
 agent-android health
 agent-android install app/build/outputs/apk/debug/app-debug.apk
 agent-android launch com.coco.demo
