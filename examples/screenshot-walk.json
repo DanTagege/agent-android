@@ -1,0 +1,18 @@
+{
+  "name": "桌面三屏截图",
+  "description": "遍历桌面并截图，适合做视觉留档或对比",
+  "on_failure": "continue",
+  "steps": [
+    {"key": "home"},
+    {"wait": 1},
+    {"screenshot": "home-1.png"},
+    {"swipe": "left"},
+    {"wait": 1},
+    {"screenshot": "home-2.png"},
+    {"swipe": "left"},
+    {"wait": 1},
+    {"screenshot": "home-3.png"},
+    {"swipe": "right"},
+    {"swipe": "right"}
+  ]
+}

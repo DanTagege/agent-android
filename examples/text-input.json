@@ -1,0 +1,14 @@
+{
+  "name": "中文输入并回读",
+  "description": "需要先装伴侣 App。坐标 540,740 是竖屏下它自测输入框的位置，横屏或其它分辨率需调整。断言会回读输入内容",
+  "on_failure": "stop",
+  "steps": [
+    {"launch": "com.coco.agentandroid"},
+    {"wait": 2},
+    {"tap": "540,740"},
+    {"wait": 1},
+    {"input": {"text": "示例中文 2026"}},
+    {"wait": 1},
+    {"assert": {"text": ["示例中文"]}}
+  ]
+}

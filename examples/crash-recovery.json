@@ -1,0 +1,15 @@
+{
+  "name": "崩溃后重启恢复",
+  "description": "复现崩溃后跑这个流程，确认 App 能重新起来。崩溃记录用 agent-android crashes 单独查",
+  "on_failure": "stop",
+  "steps": [
+    {"launch": "com.coco.agentandroid"},
+    {"wait": 2},
+    {"assert": {"package": "com.coco.agentandroid"}},
+    {"key": "home"},
+    {"wait": 1},
+    {"launch": "com.coco.agentandroid"},
+    {"wait": 2},
+    {"assert": {"package": "com.coco.agentandroid", "node_count_min": 3}}
+  ]
+}

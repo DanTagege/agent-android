@@ -1,0 +1,56 @@
+name: Bug 报告
+description: 某个命令行为不对、报错、或者卡住
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先跑一次 `agent-android doctor`——它能直接定位大部分环境问题（adb 版本冲突、设备离线、uiautomator 不可用、存储满等）。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 请贴出**完整命令**、**实际输出**，以及你期望的结果
+      render: shell
+      placeholder: |
+        $ agent-android tap text=登录
+        {"ok":false,"error":"屏幕上找不到「登录」", ...}
+
+        期望：点到登录按钮
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor 输出
+      description: 粘贴 `agent-android doctor` 的 JSON（把设备序列号等隐私信息删掉）
+      render: json
+
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: 操作系统 / Python 版本 / 设备或模拟器 / Android 版本
+      placeholder: Windows 11 + Python 3.13 + MuMu 12 (Android 12)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: channel
+    attributes:
+      label: 使用的通道
+      options:
+        - adb（默认）
+        - --bridge（伴侣 App）
+        - MCP
+        - HTTP serve
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 截图、logcat 片段、或者你已经试过的修复动作

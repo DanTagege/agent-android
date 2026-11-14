@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 先搜已有 Issue
+    url: https://github.com/DanTagege/agent-android/issues
+    about: 不确定是不是 bug，可以先搜一下有没有人遇到过同样的问题

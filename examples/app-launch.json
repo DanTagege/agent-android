@@ -1,0 +1,13 @@
+{
+  "name": "启动应用并确认前台",
+  "description": "把 com.android.settings 换成你的包名即可复用；断言会检查前台包名和节点数",
+  "on_failure": "stop",
+  "steps": [
+    {"launch": "com.android.settings"},
+    {"wait": 2},
+    {"assert": {"package": "com.android.settings", "node_count_min": 5}},
+    {"key": "home"},
+    {"wait": 1},
+    {"assert": {"node_count_min": 3}}
+  ]
+}

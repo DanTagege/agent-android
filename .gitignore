@@ -1,0 +1,42 @@
+# ---- Python CLI ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+dist/
+build/
+*.egg
+
+# ---- 本机环境 / 隐私文件（务必不要提交）----
+local.properties
+.env
+AGENT_ANDROID_HOME/
+*.log
+screen.png
+*.apk
+
+# ---- Android / Gradle ----
+.gradle/
+.idea/
+*.iml
+.cxx/
+.externalNativeBuild
+captures/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# ---- 运行产物（截图 / 报告）----
+/*.png
+/*.jpg
+flow-report.json
+
+# ---- IDE / OS ----
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp

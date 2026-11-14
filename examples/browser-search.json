@@ -1,0 +1,15 @@
+{
+  "name": "浏览器搜索",
+  "description": "先在桌面找到浏览器图标点击；地址栏坐标 700,161 适用于 1920x1080 横屏，其它分辨率需调整。中文务必走地址栏（页面内 HTML 输入框会被 JS 覆盖）",
+  "on_failure": "stop",
+  "steps": [
+    {"tap": "浏览器"},
+    {"wait": 4},
+    {"tap": "700,161"},
+    {"wait": 2},
+    {"input": {"text": "https://www.baidu.com/s?wd=金融"}},
+    {"key": "enter"},
+    {"wait": 9},
+    {"assert": {"package": "com.android.chromium", "node_count_min": 10}}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "多 App 来回切换",
+  "description": "验证跨 App 切换与最近任务界面；包名按需替换",
+  "on_failure": "stop",
+  "steps": [
+    {"launch": "com.android.settings"},
+    {"wait": 2},
+    {"assert": {"package": "com.android.settings"}},
+    {"launch": "com.android.chromium"},
+    {"wait": 3},
+    {"assert": {"package": "com.android.chromium"}},
+    {"key": "recents"},
+    {"wait": 1},
+    {"screenshot": "recents.png"},
+    {"key": "home"}
+  ]
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Agent Bridge</string>
+    <string name="accessibility_service_description">让 AI 助手读取屏幕元素并在本机执行点击、输入等动作。所有数据只通过 127.0.0.1 的本地端口提供，不会上传到任何服务器。</string>
+    <string name="title">设备端桥接</string>
+    <string name="subtitle">把屏幕翻译成 AI 能读懂的元素表</string>
+    <string name="status_connected">服务已连接</string>
+    <string name="status_disconnected">无障碍服务未开启</string>
+    <string name="open_settings">开启无障碍服务</string>
+    <string name="refresh">刷新状态</string>
+    <string name="forward_hint">在电脑上运行下面这条命令，再用 curl 或 agent-android 访问本机端口：</string>
+    <string name="safety_hint">安全提示：该端口等价于远程控制手机，仅监听 127.0.0.1，请勿映射到公网。</string>
+    <string name="log_title">最近操作</string>
+    <string name="log_empty">暂无操作记录</string>
+</resources>

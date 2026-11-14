@@ -1,0 +1,16 @@
+{
+  "name": "打开设置并读取设备信息",
+  "on_failure": "stop",
+  "steps": [
+    {"launch": "com.android.settings"},
+    {"wait": 2},
+    {"assert": {"package": "com.android.settings", "node_count_min": 5}},
+    {"snapshot": true},
+    {"scroll_to": "关于手机"},
+    {"tap": "关于手机"},
+    {"wait": 2},
+    {"assert": {"text": ["型号"]}},
+    {"screenshot": "about.png"},
+    {"key": "back"}
+  ]
+}

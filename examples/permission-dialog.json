@@ -1,0 +1,11 @@
+{
+  "name": "处理权限弹窗",
+  "description": "页面请求定位时点「禁止」。没弹窗会停在 assert 这步，可加 --continue-on-error 跳过",
+  "on_failure": "stop",
+  "steps": [
+    {"assert": {"text": ["想使用您设备的位置信息"]}},
+    {"tap": "禁止"},
+    {"wait": 2},
+    {"snapshot": true}
+  ]
+}

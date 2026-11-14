@@ -1,0 +1,25 @@
+name: 功能建议
+description: 希望 agent-android 支持的新能力
+labels: [enhancement]
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 你想完成什么任务
+      description: 描述真实场景，而不是「加一个 XXX 命令」
+      placeholder: 我想在 CI 里跑一套回归：启动 App、登录、下单到支付页（不付款）
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: 现在怎么做的
+      description: 现有命令能凑出来吗？哪里别扭？
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你期望的用法
+      description: 伪代码或命令示例都行
+      render: shell

@@ -1,0 +1,16 @@
+# 统一换行符：文本文件一律 LF，避免 Windows 上提交的 CRLF 在 Linux CI 上
+# 让 shell 脚本报 "bad interpreter: /bin/sh^M"
+* text=auto eol=lf
+
+# 批处理必须是 CRLF，否则 Windows 上可能无法执行
+*.bat text eol=crlf
+
+# 二进制文件不做换行转换
+*.jar binary
+*.png binary
+*.jpg binary
+*.apk binary
+
+# 入口脚本固定 LF
+gradlew text eol=lf
+*.sh text eol=lf

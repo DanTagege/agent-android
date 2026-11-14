@@ -1,0 +1,14 @@
+{
+  "name": "进入网络设置",
+  "description": "不同 ROM 的文案可能是「WLAN」或「Wi-Fi」，按实际改 tap 的目标",
+  "on_failure": "stop",
+  "steps": [
+    {"launch": "com.android.settings"},
+    {"wait": 2},
+    {"scroll_to": "网络"},
+    {"tap": "网络和互联网"},
+    {"wait": 2},
+    {"assert": {"package": "com.android.settings"}},
+    {"screenshot": "network.png"}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "长列表滚动查找",
+  "description": "用系统设置演示 scroll_to；滚到底或界面切走时会主动停手并给出原因",
+  "on_failure": "stop",
+  "steps": [
+    {"launch": "com.android.settings"},
+    {"wait": 2},
+    {"scroll_to": "关于手机"},
+    {"assert": {"text": ["关于手机"]}},
+    {"screenshot": "bottom-of-list.png"}
+  ]
+}

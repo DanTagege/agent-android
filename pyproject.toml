@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-android"
+version = "0.1.0"
+description = "Let AI coding agents see and control Android phones/emulators through adb"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["adb", "android", "ai-agent", "uiautomator", "cli", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+]
+
+# 零第三方依赖：clone 下来有 Python 就能跑
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+agent-android = "agent_android.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_android*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

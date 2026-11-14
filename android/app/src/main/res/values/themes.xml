@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 只提供一个基础系统主题；界面全部由 Compose 的 MaterialTheme 绘制，
+         因此不需要引入 AppCompat / Material Components 依赖。 -->
+    <style name="Theme.AgentAndroid" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@color/surface_light</item>
+        <item name="android:windowBackground">@color/surface_light</item>
+        <item name="android:colorAccent">@color/purple_600</item>
+    </style>
+</resources>
