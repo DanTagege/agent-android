@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `notify list|tap|shade|collapse`：读通知栏可见内容、点击第 N 条通知。
+- `--lock N`：多 Agent 共用一台设备时用文件锁串行化，抢不到可排队等待。
+- `--prefer auto|uiautomator|accessibility`：指定快照走哪条通道。
+- `py.typed`：mypy / pyright 能读到类型信息。
+- `README.en.md`：英文版文档。
+
+### 变更
+
+- `snapshot` 默认优先走伴侣 App 的无障碍通道，不可用才回落 uiautomator
+  （设置页 4.0s → 1.8s；持续动画的详情页 14s → 1.6s）。
+- 模拟器端口探测与 connect 改为并发，`devices` 3.5s → 1.3s。
+- CI 增加覆盖率统计。
+
 ## [0.1.0] - 2026-11-14
 
 首个公开版本。

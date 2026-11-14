@@ -6,8 +6,9 @@ import json
 import os
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 # 所有命令失败时抛这个异常，由 cli.py 统一转成 JSON 错误 + 非零退出码
 class AgentAndroidError(RuntimeError):
@@ -74,6 +75,59 @@ def snapshot_path(device: str) -> Path:
     """按设备分文件，多设备同时操作时互不干扰。"""
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in device)
     return cache_dir() / f"snapshot_{safe}.json"
+
+
+LOCK_TTL = 120  # 秒；持有者崩溃后留下的锁超过这个时间会被回收
+
+
+@contextmanager
+def device_lock(device: str, *, wait: float = 0) -> Iterator[None]:
+    """同一台设备的操作串行化，避免两个 Agent 互相打断。
+
+    场景：A 刚点开菜单，B 的 snapshot 把界面刷走，A 的下一次 tap 就点错了。
+    用 O_CREAT|O_EXCL 的锁文件实现；持有者崩溃留下的锁超过 LOCK_TTL 自动回收。
+
+    wait=0 表示不排队，抢不到立刻报 device_locked。
+    """
+    safe = device.replace(":", "_").replace("/", "_").replace("\\", "_")
+    path = cache_dir() / f".lock_{safe}"
+    deadline = time.time() + max(0.0, wait)
+    handle: int | None = None
+
+    while True:
+        try:
+            handle = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(handle, f"{os.getpid()}\n".encode())
+            break
+        except FileExistsError:
+            try:
+                if time.time() - path.stat().st_mtime > LOCK_TTL:
+                    path.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+
+            if time.time() >= deadline:
+                raise AgentAndroidError(
+                    f"设备 {device} 正被另一个进程占用",
+                    f"锁文件：{path}。可排队等待，或确认没有别的 Agent 后删除它",
+                    code="device_locked", retryable=True,
+                    actions=[
+                        f"agent-android <命令> --lock 30  # 最多排队 30 秒",
+                        f"rm '{path}'  # 确认对方已退出后强制解锁",
+                    ],
+                )
+            time.sleep(0.2)
+
+    try:
+        yield
+    finally:
+        if handle is not None:
+            os.close(handle)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def has_snapshot(device: str) -> bool:

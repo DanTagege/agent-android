@@ -221,16 +221,26 @@ def connect(address: str, *, timeout: int = 15) -> dict[str, object]:
 
 
 def connect_known(timeout: float = 0.2) -> list[dict[str, object]]:
-    """扫描常见模拟器端口并逐个连接，返回成功连上的列表。"""
-    result: list[dict[str, object]] = []
-    for item in emulators.probe(timeout):
+    """并发连接已探测到的模拟器端口，返回成功连上的列表。
+
+    串行 connect 三个端口要 1-3 秒，是冷启动里最明显的一段开销。
+    """
+    candidates = emulators.probe(timeout)
+    if not candidates:
+        return []
+
+    def attempt(item: dict[str, object]) -> dict[str, object] | None:
         try:
             info = connect(str(item["address"]))
         except AgentAndroidError:
-            continue
-        if info["connected"]:
-            result.append({**item, "connected": True})
-    return result
+            return None
+        return {**item, "connected": True} if info["connected"] else None
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
+        results = list(pool.map(attempt, candidates))
+    return [item for item in results if item]
 
 
 def resources(device: str) -> dict[str, object]:

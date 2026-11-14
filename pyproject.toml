@@ -31,6 +31,10 @@ agent-android = "agent_android.cli:main"
 [tool.setuptools.packages.find]
 include = ["agent_android*"]
 
+# py.typed 要一起打进 wheel，否则 mypy 用户拿不到类型信息
+[tool.setuptools.package-data]
+agent_android = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

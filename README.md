@@ -1,7 +1,8 @@
 # agent-android
 
 > **给 AI 编程助手装上一双眼睛和一双手，让它自己操作 Android 手机 / 模拟器。**
-> Give your coding agent eyes and hands on Android.
+
+[简体中文](README.md) | [English](README.en.md)
 
 [![CI](https://github.com/DanTagege/agent-android/actions/workflows/ci.yml/badge.svg)](https://github.com/DanTagege/agent-android/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -293,7 +294,9 @@ agent-android screenshot -o shot.png    # 交叉验证（截图才是界面真�
 | `doctor` | 完整体检（8 项），输出可执行的修复命令 |
 | `setup [--markdown]` | 没有设备时：判断处境，给出接真机 / 装模拟器的步骤 |
 | `recover [--fix-animations]` | 自动重启 adb、重连模拟器、清缓存 |
-| `snapshot [--full] [--compact]` | **核心**：抓取 UI 元素表；`--compact` 省一半 token |
+| `snapshot [--full] [--compact] [--prefer]` | **核心**：抓取 UI 元素表；默认先走无障碍通道（快一倍），`--compact` 省一半 token |
+| `notify list\|tap\|shade\|collapse` | 通知栏：读可见通知 / 点第 N 条 / 下拉 / 收起 |
+| `--lock N`（所有命令通用） | 多 Agent 共用一台设备时排队拿锁，避免互相打断 |
 | `tap <target>` | 点击：`n12` / `text=登录` / `id=btn_login` / `360,900` |
 | `tap text=确定@2` | 同名元素选第 2 个（从 1 开始） |
 | `long-press <target>` | 长按 |

@@ -60,6 +60,7 @@ metadata:
 | `scroll-to <target> --max 8` | 滚动查找（滚到界面切换或内容不变会自动停） |
 | `wake` | 灭屏/锁屏时先点亮，否则 snapshot 只有锁屏界面 |
 | `crashes` | 复现崩溃后第一时间看，不用翻几百行 logcat |
+| `notify list` / `notify tap N` | 验证码、下载完成这类通知，先拉下来读再点 |
 | `run <flow.json>` | **批量回归**：把一串操作写成 JSON，一次跑完并出报告 |
 
 `snapshot` 返回里的 `source` 字段说明这次用的是哪条通道：

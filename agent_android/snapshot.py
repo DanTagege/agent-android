@@ -188,26 +188,39 @@ def _compact(node: dict[str, Any]) -> dict[str, Any]:
     return {key: node[key] for key in _COMPACT_FIELDS if key in node}
 
 
-def _bridge_snapshot(device: str) -> dict[str, Any] | None:
+def _bridge_snapshot(device: str, *, recover: bool = False) -> dict[str, Any] | None:
     """伴侣 App 的无障碍快照（不依赖 uiautomator 的 idle 判断）。
 
-    只在 uiautomator 失败时作为降级路径；函数内部自己吞异常，
-    返回 None 表示「这条路也不可用」，由调用方抛原始错误。
+    函数内部自己吞异常，返回 None 表示「这条路不可用」。
+
+    recover=False 时**不会**触发自动拉起：auto 模式每次快照都会先探一下这条路，
+    若每次都去写 secure settings + am start，会把设备搞得鸡犬不宁。
     """
     try:
         from . import bridge
 
-        payload = bridge.request(device, "/snapshot", token=bridge.read_token(device))
+        token = bridge.read_token(device)
+        if not token:
+            # 没装 App 或读不到令牌：立刻放弃，不要浪费一次连接的往返
+            return None
+        payload = bridge.request(device, "/snapshot", token=token, _retry=recover)
     except AgentAndroidError as exc:
-        log(f"无障碍降级失败：{exc.message}（{exc.hint[:80]}）")
+        log(f"无障碍快照不可用：{exc.message}（{exc.hint[:60]}）")
         return None
     if not isinstance(payload, dict) or not payload.get("nodes"):
         return None
     return payload
 
 
-def take(device: str, *, full: bool = False, compact: bool = False) -> dict[str, Any]:
-    """抓一次屏幕快照，返回可直接交给 Agent 的 JSON 字典。"""
+def take(device: str, *, full: bool = False, compact: bool = False,
+         prefer: str = "auto") -> dict[str, Any]:
+    """抓一次屏幕快照，返回可直接交给 Agent 的 JSON 字典。
+
+    prefer 决定优先走哪条通道：
+      - auto（默认）：先试无障碍（实测快 2 倍），不可用再走 uiautomator
+      - uiautomator：强制系统通道，失败才降级
+      - accessibility：只走伴侣 App，不可用直接报错
+    """
     # 上一次的包名用来判断「App 是不是崩了退回桌面」
     prev_package = ""
     try:
@@ -217,19 +230,34 @@ def take(device: str, *, full: bool = False, compact: bool = False) -> dict[str,
 
     warnings: list[str] = []
     source = "uiautomator"
-    try:
-        all_nodes = parse_nodes(dump_xml(device))
-    except AgentAndroidError:
-        # uiautomator 拿不到（典型：设置详情页等持续动画界面）时，
-        # 自动切到伴侣 App 的无障碍服务 —— 这是真正的「能力降级」，不是报错。
-        fallback = _bridge_snapshot(device)
-        if fallback is None:
-            raise
-        all_nodes = fallback["nodes"]
-        source = "accessibility"
-        warnings.append(
-            "uiautomator 拿不到层级（界面持续动画），已自动改用伴侣 App 的无障碍服务"
-        )
+    all_nodes = None
+
+    if prefer in ("auto", "accessibility"):
+        payload = _bridge_snapshot(device)
+        if payload:
+            all_nodes = payload["nodes"]
+            source = "accessibility"
+        elif prefer == "accessibility":
+            raise AgentAndroidError(
+                "无障碍通道不可用",
+                "确认伴侣 App 已安装、无障碍服务已开启",
+                code="bridge_unreachable", retryable=True,
+                actions=["agent-android --bridge snapshot", "agent-android doctor"],
+            )
+
+    if all_nodes is None:
+        try:
+            all_nodes = parse_nodes(dump_xml(device))
+        except AgentAndroidError:
+            # uiautomator 拿不到（典型：持续动画界面）时自动切无障碍
+            fallback = _bridge_snapshot(device)
+            if fallback is None:
+                raise
+            all_nodes = fallback["nodes"]
+            source = "accessibility"
+            warnings.append(
+                "uiautomator 拿不到层级（界面持续动画），已自动改用伴侣 App 的无障碍服务"
+            )
 
     visible = all_nodes if full else [n for n in all_nodes if is_meaningful(n)]
 

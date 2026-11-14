@@ -12,10 +12,10 @@ import sys
 from typing import Any, Sequence
 
 from . import (
-    __version__, actions, adb, bridge, diagnostics, emulators, onboarding,
-    runner, snapshot,
+    __version__, actions, adb, bridge, diagnostics, emulators, notify,
+    onboarding, runner, snapshot,
 )
-from .util import AgentAndroidError, emit, fail, ok
+from .util import AgentAndroidError, device_lock, emit, fail, ok
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="伴侣 App 端口，默认 8377")
     parser.add_argument("--token", default=os.environ.get("AGENT_ANDROID_TOKEN", ""),
                         help="伴侣 App 访问令牌（见 App 界面），也可用 AGENT_ANDROID_TOKEN")
+    parser.add_argument("--lock", type=float, default=0, metavar="SECONDS",
+                        help="操作前获取设备锁，多个 Agent 共用一台设备时避免互相打断；"
+                             "抢不到最多排队 N 秒")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("devices", help="列出已连接的设备（含模拟器识别）")
@@ -61,6 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--full", action="store_true", help="包含无文字的纯布局节点")
     p.add_argument("--compact", action="store_true",
                    help="只输出操作必需字段，大幅降低 token 消耗")
+    p.add_argument("--prefer", choices=["auto", "uiautomator", "accessibility"],
+                   default="auto",
+                   help="优先通道：auto 先试无障碍（实测快一倍），不可用回落 uiautomator")
 
     sub.add_parser("wake", help="点亮屏幕（灭屏/锁屏时先执行）")
 
@@ -111,6 +117,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("crashes", help="只取崩溃记录（进程 / 异常 / 调用栈）")
     p.add_argument("--limit", type=int, default=3)
 
+    p = sub.add_parser("notify", help="通知栏：下拉 / 收起 / 读取 / 点击")
+    p.add_argument("action", choices=["list", "shade", "collapse", "tap"],
+                   help="list 读可见通知；tap 点第 N 条")
+    p.add_argument("--index", type=int, default=1, help="notify tap 的序号，从 1 开始")
+    p.add_argument("--limit", type=int, default=8, help="list 最多返回几条")
+    p.add_argument("--keep-open", action="store_true",
+                   help="list 之后不收通知栏，便于紧接着操作")
+
     sub.add_parser(
         "mcp",
         help="以 MCP Server 运行（stdio），供 Claude Desktop / Cursor 直接接入",
@@ -140,6 +154,9 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--bridge", action="store_true",
                                default=argparse.SUPPRESS,
                                help="改用设备端伴侣 App 的 HTTP 接口")
+        subparser.add_argument("--lock", type=float, default=argparse.SUPPRESS,
+                               metavar="SECONDS",
+                               help="操作前获取设备锁，抢不到最多排队 N 秒")
         subparser.add_argument("--bridge-port", type=int,
                                default=argparse.SUPPRESS,
                                help="伴侣 App 端口")
@@ -201,7 +218,8 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
 
     if cmd == "snapshot":
         return snapshot.take(device, full=args.full,
-                             compact=getattr(args, "compact", False))
+                             compact=getattr(args, "compact", False),
+                             prefer=getattr(args, "prefer", "auto"))
     if cmd == "wake":
         return actions.wake(device=device)
     if cmd == "tap":
@@ -231,6 +249,15 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return actions.logcat(device=device, lines=args.lines, level=args.level)
     if cmd == "crashes":
         return actions.crashes(device=device, limit=args.limit)
+    if cmd == "notify":
+        if args.action == "shade":
+            return notify.shade(device)
+        if args.action == "collapse":
+            return notify.collapse(device)
+        if args.action == "tap":
+            return notify.tap(device, args.index)
+        return notify.list_visible(device, limit=args.limit,
+                                   keep_open=args.keep_open)
     if cmd == "run":
         return runner.run_flow_file(
             args.flow, device,
@@ -260,7 +287,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return serve_stdio(args.device)
 
     try:
-        payload = dispatch(args)
+        wait = getattr(args, "lock", 0)
+        if wait:
+            # 并发场景：拿到锁再动设备，避免两个 Agent 互相把界面刷走
+            with device_lock(getattr(args, "device", None) or "default", wait=wait):
+                payload = dispatch(args)
+        else:
+            payload = dispatch(args)
         emit(ok(**payload) if "ok" not in payload else payload, pretty=args.pretty)
         return 0
     except AgentAndroidError as exc:

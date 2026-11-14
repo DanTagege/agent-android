@@ -79,19 +79,29 @@ def probe(timeout: float = 0.2) -> list[dict[str, object]]:
 
     只探测回环地址：模拟器的 ADB 默认只绑定本机，扫远程地址既慢也没有意义。
     """
-    found: list[dict[str, object]] = []
+    # 去重后并发探测：串行的话 8 个端口 × 0.2s 超时就是 1.6 秒，
+    # 这段时间完全是白等的（每个端口相互独立）
+    unique: list = []
     seen: set[int] = set()
     for emulator in KNOWN_EMULATORS:
         if emulator.port in seen:
             continue
         seen.add(emulator.port)
-        if _port_open(emulator.port, timeout):
-            found.append({
-                "address": f"127.0.0.1:{emulator.port}",
-                "emulator": emulator.name,
-                "note": emulator.note,
-            })
-    return found
+        unique.append(emulator)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(8, len(unique) or 1)) as pool:
+        opened = list(pool.map(lambda e: _port_open(e.port, timeout), unique))
+
+    return [
+        {
+            "address": f"127.0.0.1:{emulator.port}",
+            "emulator": emulator.name,
+            "note": emulator.note,
+        }
+        for emulator, ok in zip(unique, opened) if ok
+    ]
 
 
 def catalog() -> list[dict[str, object]]:
