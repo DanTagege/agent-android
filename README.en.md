@@ -95,7 +95,7 @@ Android is a flaky target. Every error carries a stable `error_code`, a
 agent-android mcp
 ```
 
-A stdio MCP server exposing 12 tools (`android_snapshot`, `android_tap`,
+A stdio MCP server exposing 13 tools (`android_snapshot`, `android_tap`,
 `android_input`, `android_screenshot`, `android_run_flow`, …). Point your
 client at it:
 

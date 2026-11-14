@@ -148,6 +148,19 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "android_logcat",
+        "description": "读取最近的 logcat 日志。crashes 只看崩溃，这个能看 App 自己打的日志。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "lines": {"type": "integer", "description": "返回最后几条，默认 50"},
+                "level": {"type": "string",
+                          "description": "最低级别：V/D/I/W/E/F，不填则全部"},
+                "device": {"type": "string"},
+            },
+        },
+    },
+    {
         "name": "android_devices",
         "description": "列出已连接的设备与模拟器识别结果。",
         "inputSchema": {"type": "object", "properties": {}},
@@ -259,6 +272,12 @@ def call_tool(name: str, arguments: dict[str, Any],
         if name == "android_crashes":
             return _text(actions.crashes(device=device,
                                          limit=int(arguments.get("limit", 3))))
+        if name == "android_logcat":
+            return _text(actions.logcat(
+                device=device,
+                lines=int(arguments.get("lines", 50)),
+                level=str(arguments.get("level", "")),
+            ))
         if name == "android_doctor":
             return _text(diagnostics.doctor(arguments.get("device")))
         if name == "android_screenshot":

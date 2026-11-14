@@ -107,7 +107,7 @@ AI 编程助手要操作手机，天然面临四个断点：
 ### 4.4 多入口
 
 - **CLI**：默认，零依赖，输出纯 JSON；
-- **MCP**（`agent-android mcp`）：stdio 协议，12 个 tools，Claude Desktop / Cursor 挂上即用；
+- **MCP**（`agent-android mcp`）：stdio 协议，13 个 tools，Claude Desktop / Cursor 挂上即用；
 - **HTTP**（`serve --port 8787`）：给不能跑终端的 Agent / 其他语言；
 - **伴侣 App**：设备端本地接口，`X-Agent-Token` 鉴权。
 
@@ -182,7 +182,7 @@ flow: 打开设置并读取设备信息 | 10/10 步通过 | 24.8 秒
 
 ```
 initialize → serverInfo: agent-android 0.1.0, protocolVersion: 2024-11-05
-tools/list → 12 个 tools，每个都有 inputSchema
+tools/list → 13 个 tools，每个都有 inputSchema
 tools/call android_devices → 返回设备列表
 tools/call android_key home → 回到桌面
 tools/call android_snapshot → app.lawnchair / 67 节点

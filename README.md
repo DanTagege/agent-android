@@ -583,7 +583,7 @@ agent-android/
 agent-android mcp
 ```
 
-启动一个 stdio MCP Server，把能力暴露成 12 个 tools。客户端配置（Claude Desktop
+启动一个 stdio MCP Server，把能力暴露成 13 个 tools。客户端配置（Claude Desktop
 的 `claude_desktop_config.json`、Cursor 的 MCP 设置都吃这个格式，完整示例见
 `examples/mcp-config.json`）：
 
